@@ -1,6 +1,6 @@
 # README #
 
-This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in the paper (see [Wiki](https://bitbucket.org/rezahay/pipenn/wiki/Home) for more information). You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
+This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in the paper. You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
 
 ### What is PIPENN? ###
 
