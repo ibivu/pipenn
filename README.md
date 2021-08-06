@@ -44,7 +44,7 @@ The following folders are used by all the different DL methods:
 
 ### How can I train a DL method with an existing training data set? ###
 
-1. Go to https://www.ibi.vu.nl/downloads/PIPENN/BioDL-Datasets.
+1. Go to https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/BioDL-Datasets.
 1. There are four training data sets: 
 	* *prepared_biolip_win_a_training.csv*: contains all types of interaction data (protein-protein, protein-small-molecule, and protein-DNA/RNA).
 	* *prepared_biolip_win_p_training.csv*: contains only protein-protein interaction data.
@@ -61,7 +61,7 @@ The following folders are used by all the different DL methods:
 
 ### How can I apply a pre-trained model on an existing testing data set? ###
 
-1. Go to https://www.ibi.vu.nl/downloads/PIPENN/PretrainedModels.
+1. Go to https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/PretrainedModels.
 1. There are five folders that have been named based on the training data sets:
 	* *BioDL-A-Models*: contains all DL models that have been trained on BioDL-A (all interaction types) training data set.
 	* *BioDL-P-Models*: contains all DL models that have been trained on BioDL-P (protein-protein) training data set.
@@ -77,7 +77,7 @@ The following folders are used by all the different DL methods:
 ### How can I train/test the ensemble method with an existing training/testing data set? ###
 
 1. Be sure that you have already copied your preferred training and testing data sets to *my-path/pipenn/data* (e.g., *prepared_biolip_win_n_training.csv*, *prepared_biolip_win_n_testing.csv*, *prepared_ZK448_win_n_benchmark.csv*). 
-1. Go to https://www.ibi.vu.nl/downloads/PIPENN/PretrainedModels.
+1. Go to https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/PretrainedModels.
 1. Go to one of the sub-folders (e.g., *BioDL-N-Models*).
 1. Download all pre-trained DL models, except for *ensnet-ppi-model.hdf5*.
 1. Copy them in the proper sub-folders of the *models* folder (copy *ann-ppi-model.hdf5* to *my-path/pipenn/models/ann-ppi*, copy  *dnet-ppi-model.hdf5* to *my-path/pipenn/models/dnet-ppi*, etc.).
