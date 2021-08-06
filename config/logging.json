@@ -1,0 +1,153 @@
+{
+    "version": 1,
+    "disable_existing_loggers": true,
+    "formatters": {
+        "simple": {
+            "format": "%(message)s"
+        }
+    },
+
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "stream": "ext://sys.stdout"
+        },
+        
+		"ensnet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/ensnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "ann_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/ann-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "unet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/unet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "dnet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/dnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "rnet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/rnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "cnn_rnn_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/cnn-rnn-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "rnn_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/rnn-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "DRNApred_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/DRNApred.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "SCRIBER_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "../logs/SCRIBER.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        }
+    },
+
+    "loggers": {
+        "ensnet-ppi": {
+            "level": "INFO",
+            "handlers": ["ensnet_file_handler"],
+            "propagate": "no"
+        },
+        "ann-ppi": {
+            "level": "INFO",
+            "handlers": ["ann_file_handler"],
+            "propagate": "no"
+        },
+        "unet-ppi": {
+            "level": "INFO",
+            "handlers": ["unet_file_handler"],
+            "propagate": "no"
+        },
+        "dnet-ppi": {
+            "level": "INFO",
+            "handlers": ["dnet_file_handler"],
+            "propagate": "no"
+        },
+        "rnet-ppi": {
+            "level": "INFO",
+            "handlers": ["rnet_file_handler"],
+            "propagate": "no"
+        },
+        "cnn-rnn-ppi": {
+            "level": "INFO",
+            "handlers": ["cnn_rnn_file_handler"],
+            "propagate": "no"
+        },
+        "rnn-ppi": {
+            "level": "INFO",
+            "handlers": ["rnn_file_handler"],
+            "propagate": "no"
+        },
+        "DRNApred": {
+            "level": "INFO",
+            "handlers": ["DRNApred_file_handler"],
+            "propagate": "no"
+        },
+        "SCRIBER": {
+            "level": "INFO",
+            "handlers": ["SCRIBER_file_handler"],
+            "propagate": "no"
+        }
+    },
+
+    "root": {
+        "level": "CRITICAL",
+        "handlers": ["console"]
+    }
+}
