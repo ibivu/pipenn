@@ -1,10 +1,15 @@
 # README #
 
-This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in the paper. You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
+This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in our paper: 
+
+    Bas Stringer*, Hans de Ferrante, Sanne Abeln, Jaap Heringa, K. Anton Feenstra and Reza Haydarlou* (2021).
+    PIPENN: Protein Interface Prediction with an Ensemble of Neural Nets. In preparation. 
+
+You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
 
 ### What is PIPENN? ###
 
-PIPENN stands for 'Protein Interface Prediction with an Ensemble of Neural Nets'. PIPENN is a set of various DL methods for predicting protein bindings of different interaction types (protein-protein, protein-small-molecule, protein-nucleotide(DNA/RNA)) at residue-level, using only information from a protein sequence.
+PIPENN stands for 'Protein Interface Prediction with an Ensemble of Neural Nets'. PIPENN is a set of various DL methods for predicting protein bindings of different interaction types (protein-protein, protein-small-molecule, protein-nucleotide(DNA/RNA)) at residue-level, using only information from a protein sequence as input.
 
 ### How can I set up the required environment? ###
 
