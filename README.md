@@ -11,7 +11,7 @@ You can also use these steps to run PIPENN for the interface prediction of your 
 
 PIPENN stands for 'Protein Interface Prediction from sequence with an Ensemble of Neural Nets'. PIPENN is a suite of DL methods for predicting protein bindings of different interaction types (protein-protein, protein-small-molecule, protein-nucleotide(DNA/RNA)) at residue-level, using only information from a protein sequence as input.
 
-In the following, we explain how the computing environment can be set up in order to re-train and test the different DL methods provided by the PIPENN suite. As PIPENN is written in *Python*, we first explain how to set up *Python* and the required libraries, after downloading this github repository. Moreover, we explain how to download the PIPENN data sets, copy them in proper folders in your own environment, update the value of some important parameters, and train/test the DL methods.
+In the following, we explain how the computing environment can be set up in order to re-train and test the different DL methods provided by the PIPENN suite. As PIPENN is written in *Python*, we first explain how to set up *Python* and the required libraries, after downloading this github repository. Moreover, we explain how to download the PIPENN data sets, copy them in proper folders in your own environment, update the value of some important parameters, and train/test the DL methods. A quick start to get familiar with PIPENN is to apply the provided pre-trained models on the provided test and benchmark data sets.
 
 ### How can I set up the required environment? ###
 
