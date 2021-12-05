@@ -3,20 +3,21 @@
 This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in our paper: 
 
     Bas Stringer*, Hans de Ferrante, Sanne Abeln, Jaap Heringa, K. Anton Feenstra and Reza Haydarlou* (2021).
-    PIPENN: Protein Interface Prediction with an Ensemble of Neural Nets. In preparation. 
+    PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Nets. In preparation. 
 
 You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
 
 ### What is PIPENN? ###
 
-PIPENN stands for 'Protein Interface Prediction with an Ensemble of Neural Nets'. PIPENN is a set of various DL methods for predicting protein bindings of different interaction types (protein-protein, protein-small-molecule, protein-nucleotide(DNA/RNA)) at residue-level, using only information from a protein sequence as input.
+PIPENN stands for 'Protein Interface Prediction from sequence with an Ensemble of Neural Nets'. PIPENN is a set of various DL methods for predicting protein bindings of different interaction types (protein-protein, protein-small-molecule, protein-nucleotide(DNA/RNA)) at residue-level, using only information from a protein sequence as input.
 
 ### How can I set up the required environment? ###
 
+PIPENN suite has been developed in *Python*, using a number of machine learning related *Python* libraries (packages). Please follow the following steps to set up your own environment:
 1. Be sure that you have already installed *Python 3.7* (or higher version). 
-1. Get [mini-conda](https://docs.conda.io/en/latest/miniconda.html), install it, create a virtual environment (*my-env*), and activate *my-env*.
+1. Get [mini-conda](https://docs.conda.io/en/latest/miniconda.html), install it, create a virtual environment (e.g., *my-env*), and activate *my-env*.
 1. Install all packages mentioned in *conda-packages.yaml* in your virtual environment. Note that if you want to run the PIPENN models on GPU's, you have to install *tensorflow-gpu* instead of *tensorflow*.
-1. Clone this repository somewhere in your path (*my-path*).
+1. Clone this repository somewhere in your path (e.g., *my-path*).
 1. Go to *my-path/pipenn* and you will see the same folder structure as you can see in this repository.
 
 ### What do these folders contain? ###
