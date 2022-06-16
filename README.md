@@ -2,8 +2,8 @@
 
 This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in our paper: 
 
-    Bas Stringer*, Hans de Ferrante, Sanne Abeln, Jaap Heringa, K. Anton Feenstra and Reza Haydarlou* (2021).
-    PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Nets. In preparation. 
+    Bas Stringer*, Hans de Ferrante, Sanne Abeln, Jaap Heringa, K. Anton Feenstra and Reza Haydarlou* (2022).
+    PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Nets. [Bioinformatics](https://doi.org/10.1093/bioinformatics/btac071)
 
 You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
 
