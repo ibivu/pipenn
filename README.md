@@ -7,6 +7,8 @@ PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Ne
 
 You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
 
+You may also be interested to use the [PIPENN webserver at www.ibi.vu.nl/programs/pipennwww/](https://www.ibi.vu.nl/programs/pipennwww/) which allows you to try out your queries of interest. Typical runtimes per protein are on the order of 10 minutes.
+
 ### What is PIPENN? ###
 
 PIPENN stands for 'Protein Interface Prediction from sequence with an Ensemble of Neural Nets'. PIPENN is a suite of DL methods for predicting protein bindings of different interaction types (protein-protein, protein-small-molecule, protein-nucleotide(DNA/RNA)) at residue-level, using only information from a protein sequence as input.
