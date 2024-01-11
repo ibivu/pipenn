@@ -20,23 +20,48 @@ from PPITrainTest import PPITrainTestCls, TrainingParams, MyPReLU
 from PPIParams import PPIParamsCls
 from PPIParams import PPIParamsCls
 from PPIExplanation import PPIExplanationCls, ExplanationParams
-from tensorflow_core.python.keras.initializers import glorot_normal
+#from tensorflow_core.python.keras.initializers import glorot_normal
 
 class AlgParams:
     ALGRITHM_NAME = "dnet-ppi"
-    DatasetParams.USE_COMET = False #True
+    #'''
+    # For web-service use the following:
+    DatasetParams.USE_COMET = False
+    ONLY_TEST = True
+    DatasetParams.ONE_HOT_ENCODING = False
+    #datasetLabel = 'UserDS_A'
+    #dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
+    datasetLabel = 'UserDS_P'
+    dataset = DatasetParams.MIN_FEATURE_COLUMNS
+    #'''
+
+    '''
+    DatasetParams.USE_COMET = False
+    ONLY_TEST = False
+    DatasetParams.ONE_HOT_ENCODING = False
+    datasetLabel = 'Epitope'
+    dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_NOWIN
+    '''
+
+    #datasetLabel = 'HH_Combined'
+    #datasetLabel = 'Homo_Hetro'
+    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_WIN
+    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_NOWIN
+    #datasetLabel = 'Cross_HH_BL_P'
+    #dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
+    #datasetLabel = 'Cross_BL_P_HH'
+    #datasetLabel = 'Cross_BL_A_HH'
+    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_WIN
+    #datasetLabel = 'Biolip_N'
     
-    datasetLabel = 'Biolip_N'
-    dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
     
-    ONLY_TEST = True #False
-    USE_EXPLAIN = False #True
+    USE_EXPLAIN = False #True #False
     
     USE_2D_MODEL = False
     USE_POOLING = False
     USE_BN = True
     USE_DROPOUT = True
-    #DatasetParams.ONE_HOT_ENCODING = False
+    #DatasetParams.FLOAT_TYPE = 'float32'
     #DatasetParams.USE_VAR_BATCH_INPUT = True
     
     INPUT_SHAPE = None  #must be determined in init.
@@ -85,25 +110,20 @@ class AlgParams:
             cls.LABEL_SHAPE = (cls.PROT_IMAGE_H, cls.LABEL_DIM)
         PPIParamsCls.setShapeParams(cls.INPUT_SHAPE, cls.LABEL_SHAPE)   
         return
-      
+    
     @classmethod
     def initAlgParams(cls, dsParam=dataset, dsLabelParam=datasetLabel, ensembleTesting=False):
+        pipennDatasetLabel = PPIParamsCls.setPipennParams()
+        if pipennDatasetLabel != None:
+            dsLabelParam = pipennDatasetLabel
+            cls.datasetLabel = pipennDatasetLabel
+            
         if ensembleTesting:
             cls.ONLY_TEST = True
         else:
             PPIParamsCls.setLoggers(cls.ALGRITHM_NAME, dsLabelParam)
         
-        EX_COLUMNS2 = [
-                #'normalized_hydropathy_index',
-                #'3_wm_normalized_hydropathy_index','5_wm_normalized_hydropathy_index','7_wm_normalized_hydropathy_index','9_wm_normalized_hydropathy_index',
-                 ]
-        EX_COLUMNS = [
-                     ]
-        IN_COLUMNS = [
-                    #'glob_stat_score',
-                    ]
-        
-        #PPIParamsCls.setInitParams(ALGRITHM_NAME,dsParam=dsParam, dsExParam=EX_COLUMNS,dsInParam=IN_COLUMNS,dsLabelParam=dsLabelParam)   
+        #PPIParamsCls.setInitParams(cls.ALGRITHM_NAME,dsParam=dsParam, dsExParam=EX_COLUMNS,dsInParam=IN_COLUMNS,dsLabelParam=dsLabelParam)   
         PPIParamsCls.setInitParams(cls.ALGRITHM_NAME,dsParam=dsParam, dsLabelParam=dsLabelParam)
         cls.setShapes()
         return 
@@ -215,6 +235,41 @@ def makeDenseBlock(x, denseSize, doDropout):
 
     return x
 
+def make1DModel2():
+    protImg = Input(shape=AlgParams.INPUT_SHAPE)
+    x = protImg
+
+    channelSize = 512 
+    dilationRate = AlgParams.INIT_CNN_DILATION_SIZE
+    x = make1DBlock(x, channelSize, dilationRate)
+    
+    channelSize = 128 
+    dilationRate = dilationRate * 2
+    x = make1DBlock(x, channelSize, dilationRate)
+    
+    channelSize = 64 
+    dilationRate = dilationRate * 2
+    x = make1DBlock(x, channelSize, dilationRate)
+    channelSize = 128
+    dilationRate = dilationRate * 2
+    x = make1DBlock(x, channelSize, dilationRate)
+    channelSize = 128
+    dilationRate = dilationRate * 2
+    x = make1DBlock(x, channelSize, dilationRate)
+    channelSize = 64
+    dilationRate = dilationRate * 2
+    x = make1DBlock(x, channelSize, dilationRate)
+    channelSize = 32
+    dilationRate = dilationRate * 2
+    x = make1DBlock(x, channelSize, dilationRate)
+    
+    #x = Dropout(TrainingParams.DROPOUT_RATE)(x)
+    x = TimeDistributed(Dense(1, activation='sigmoid'))(x)
+        
+    model = Model(inputs=protImg, outputs=x)
+    
+    return model
+
 def make1DModel():
     protImg = Input(shape=AlgParams.INPUT_SHAPE)
     x = protImg
@@ -315,6 +370,23 @@ def make1DModel5():
     return model
 
 def performTraining():
+    """
+    5e-2; 0.75; 0.80 (seqvec)
+    homo=MCC: 33.36% AUC: 76.16%
+    Hetro=MCC: 12.28% AUC: 63.33%
+    """
+    #TrainingParams.USE_EARLY_STOPPING = False    #if the training set is Serendip.
+    """
+    TrainingParams.LEARNING_RATE = 1e-4 #1e-3 #1e-4 #1e-2 #5e-2
+    TrainingParams.EPSILON_RATE = 1e-2 #1e-4 #1e-8
+    TrainingParams.DECAY_RATE1 = 0.60 #0.75 #0.65 #0.80 #0.7
+    TrainingParams.DECAY_RATE1 = 0.80 #0.70 #0.85 #0.8
+    #TrainingParams.NUM_EPOCS = 1000
+    #TrainingParams.OPT_FUN = TrainingParams.RMS_OPT
+    """
+    #LossParams.USE_KERAS_ENTROPY = True
+    #TrainingParams.EARLY_STOP_PATIENCE = 50
+    
     ##USE_2D_MODEL = True
     #LossParams.setLossFun(LossParams.MEAN_SQUARED)
     #no-padding
@@ -327,7 +399,6 @@ def performTraining():
     TrainingParams.KERNAL_INITIALIZER = he_uniform
     TrainingParams.ACTIVATION_FUN = PReLU
     #TrainingParams.BATCH_SIZE = 8 
-    #TrainingParams.USE_EARLY_STOPPING = False    #if the training set is Serendip.
     
     TrainingParams.USE_BIAS = True
     LossParams.USE_WEIGHTED_LOSS = True
@@ -346,6 +417,7 @@ def performTraining():
     return
 
 def performTesting():
+    TrainingParams.SAVE_PRED_FILE = True
     TrainingParams.GEN_METRICS_PER_PROT = True
     tstResults = PPITrainTestCls().testModel()
     return tstResults
@@ -355,6 +427,7 @@ def performExplanation():
    ExplanationParams.NUM_TSTS = 3
    ExplanationParams.MAX_FEATURES = 10 
    PPIExplanationCls.explainModel()
+   return
         
 if __name__ == "__main__":
     AlgParams.initAlgParams()

@@ -9,6 +9,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from audioop import avg
 
+from PPIDataset import DatasetParams
+
 class PPIPredMericsCls(object):   
     NUM_DIG = 3
     
@@ -403,24 +405,27 @@ class PPIPredPlotCls(object):
             absHeight = (barHeight * 2) + (protHeight * numProts)
             return absHeight
         
-        def calcRelativeHeights(numProts):
+        def calcRelativeHeights(numProts, rowNum):
             barRelHeight = 0.484 #0.474
             protRelHeight = 0.046 #0.056
             totalProtRelHeight = protRelHeight * numProts
             barRelHeight = abs(barRelHeight - (totalProtRelHeight / 2))
-            relHeights = [barRelHeight, barRelHeight]
+            #relHeights = [barRelHeight, barRelHeight]
+            relHeights = []
+            for i in range(rowNum-1):
+                relHeights.append(barRelHeight)
             for i in range(numProts):
                 relHeights.append(protRelHeight)
             return relHeights
                 
-        def plotYtrue(figPlot, protId, prot_y_true):
+        def plotYtrue(figPlot, rowNum, protId, prot_y_true):
             trace = go.Bar(name=protId,y=prot_y_true,hoverinfo='x+y',showlegend=False,visible=False)
-            figPlot.add_trace(trace, 1, 1)
+            figPlot.add_trace(trace, rowNum, 1)
             return figPlot
         
-        def plotYpred(figPlot, protId, prot_y_pred):
+        def plotYpred(figPlot, rowNum, protId, prot_y_pred):
             trace = go.Bar(name=protId,y=prot_y_pred,hoverinfo='x+y',showlegend=False,visible=False)
-            figPlot.add_trace(trace, 2, 1)
+            figPlot.add_trace(trace, rowNum, 1)
             return figPlot
         
         def plotAASeq(figPlot, row, protId, protAA, protLen):
@@ -444,15 +449,16 @@ class PPIPredPlotCls(object):
             figPlot.update_yaxes(patch=patchDict, row=row,col=1)
             return figPlot
         
-        def createPlaceHolderAASeq(figPlot):
+        def createPlaceHolderAASeq(figPlot, rowNum):
             protAA = ['M']
-            return plotAASeq(figPlot, 3, 'p-holder', protAA, 1)
+            #return plotAASeq(figPlot, 3, 'p-holder', protAA, 1)
+            return plotAASeq(figPlot, rowNum, 'p-holder', protAA, 1)
         
-        def createSubplots(numProts):
-            figPlot = make_subplots(rows=numProts+3, cols=1, shared_xaxes=True, 
+        def createSubplots(numProts, rowNum):
+            figPlot = make_subplots(rows=numProts+rowNum, cols=1, shared_xaxes=True, 
                                     vertical_spacing=0.001, 
-                                    row_heights=calcRelativeHeights(numProts+1))
-            figPlot = createPlaceHolderAASeq(figPlot)
+                                    row_heights=calcRelativeHeights(numProts+1, rowNum))
+            figPlot = createPlaceHolderAASeq(figPlot, rowNum)
             return figPlot
         
         def updateSubplots(figPlot, numProts, longestProtLen):
@@ -466,11 +472,12 @@ class PPIPredPlotCls(object):
                       ))
             return figPlot
         
-        def consFigPlot(starti, numProts):
-            figPlot = createSubplots(numProts)
+        def consFigPlot(starti, numProts, placeHolderRowNum):
+            figPlot = createSubplots(numProts, placeHolderRowNum)
             selectedProt = protIds[starti]
             #print('######### numProts: ', numProts)
-            row = 4
+            #row = 4
+            row = placeHolderRowNum + 1
             longestProtLen = 0
             for proti in range(0, numProts):
                 protId = protIds[starti+proti]
@@ -478,10 +485,11 @@ class PPIPredPlotCls(object):
                 protLen = len(protAA)
                 if protLen >= longestProtLen:
                     longestProtLen = protLen
-                prot_y_true = y_trues[starti+proti]
+                if DatasetParams.USE_USERDS_EVAL == False:
+                    prot_y_true = y_trues[starti+proti]
+                    figPlot = plotYtrue(figPlot, placeHolderRowNum-2, protId, prot_y_true)
                 prot_y_pred = y_preds[starti+proti]
-                figPlot = plotYtrue(figPlot, protId, prot_y_true)
-                figPlot = plotYpred(figPlot, protId, prot_y_pred)
+                figPlot = plotYpred(figPlot, placeHolderRowNum-1, protId, prot_y_pred)
                 figPlot = plotAASeq(figPlot, row, protId, protAA, protLen)
                 row = row + 1
                 #print('######### protId: ', protId)
@@ -489,16 +497,29 @@ class PPIPredPlotCls(object):
             
             #print(figPlot.data)
             #print(figPlot.layout)
-            patchDict = {'opacity':1.0,'y':figPlot.data[3].y,'text':figPlot.data[3].text,'marker':figPlot.data[3].marker}
-            figPlot.data[3].y = []
-            figPlot.data[3].text = []
-            figPlot.data[3].marker = {}
-            figPlot.layout['yaxis3']['ticktext'] = figPlot.layout['yaxis4']['ticktext']
-            figPlot.layout['yaxis4']['ticktext'] = ['']
-            figPlot.update_traces(patch=patchDict, row=3,col=1)
+            #patchDict = {'opacity':1.0,'y':figPlot.data[3].y,'text':figPlot.data[3].text,'marker':figPlot.data[3].marker}
+            
+            patchDict = {'opacity':1.0,'y':figPlot.data[placeHolderRowNum].y,'text':figPlot.data[placeHolderRowNum].text,'marker':figPlot.data[placeHolderRowNum].marker}
+            figPlot.data[placeHolderRowNum].y = []
+            figPlot.data[placeHolderRowNum].text = []
+            figPlot.data[placeHolderRowNum].marker = {}
+            if DatasetParams.USE_USERDS_EVAL == True:
+                figPlot.layout['yaxis2']['ticktext'] = figPlot.layout['yaxis3']['ticktext']
+                figPlot.layout['yaxis3']['ticktext'] = ['']
+            else:    
+                figPlot.layout['yaxis3']['ticktext'] = figPlot.layout['yaxis4']['ticktext']
+                figPlot.layout['yaxis4']['ticktext'] = ['']
+            figPlot.update_traces(patch=patchDict, row=placeHolderRowNum,col=1)
             figPlot.update_traces(patch={'visible':True}, selector={'name':selectedProt}, row=1,col=1)
-            figPlot.update_traces(patch={'visible':True}, selector={'name':selectedProt}, row=2,col=1)   
+            if DatasetParams.USE_USERDS_EVAL == False:
+                figPlot.update_traces(patch={'visible':True}, selector={'name':selectedProt}, row=2,col=1)   
             return figPlot
+        
+        # rowNum-true-values=1; rowNum-pred-values=2;rowNum-placeholder=3; if DatasetParams.USE_USERDS_EVAL==False 
+        if DatasetParams.USE_USERDS_EVAL == True:
+            placeHolderRowNum = 2
+        else: 
+            placeHolderRowNum = 3
         
         AA_WIDTH = 30
         AA_FONT_SIZE = 8
@@ -509,12 +530,25 @@ class PPIPredPlotCls(object):
             var gd = document.getElementById('{plot_id}');
             handlePlotlyOnclick(gd);
             """
-        ]    
+        ] 
         plotlyOnclickScript = \
             """
-            <script>
+            <script> 
+            var useUserDSEval = {};
+            {}
+            </script>
+            """ 
+        onclickScript = \
+            """
+            //<script>
             function handlePlotlyOnclick(gd) {
-                var prevTraceInd = 3;
+                var prevTraceInd;
+                if (useUserDSEval == true) {
+                    prevTraceInd = 2;
+                }
+                else {
+                    prevTraceInd = 3;
+                }
                 gd.on('plotly_click',
                     function(eventData) {{ 
                         //console.log(eventData);
@@ -554,11 +588,13 @@ class PPIPredPlotCls(object):
                             figLayout[firstYaxisAttr].ticktext = figLayout[curYaxisAttr].ticktext;
                             figLayout[curYaxisAttr].ticktext = [''];
     
+                            if (useUserDSEval == false) {
+                                figData[curTraceInd-2].visible = true;
+                                figData[prevTraceInd-2].visible = false;
+                            }
                             figData[curTraceInd-1].visible = true;
-                            figData[curTraceInd-2].visible = true;
                             figData[prevTraceInd].visible = true;
                             figData[prevTraceInd-1].visible = false;
-                            figData[prevTraceInd-2].visible = false;
                           
                             Plotly.react(gd, figData, figLayout);
                             prevTraceInd = curTraceInd;
@@ -573,17 +609,22 @@ class PPIPredPlotCls(object):
                     }}
                 );
             }
-            </script>
+            //</script>
             """
+        useUserDSEval = 'true' if DatasetParams.USE_USERDS_EVAL else 'false'
+        plotlyOnclickScript = plotlyOnclickScript.format(useUserDSEval, onclickScript)    
         figHtmlDiv = \
             """
             <div class="list-group" {}>
                 {}
             </div>
             """
-        figPlot = PPIPredMericsCls.consFigMetrics(y_trues, y_preds)
-        figDiv = figPlot.to_html(full_html=False, include_plotlyjs=False)
-        figDivs = figHtmlDiv.format('', figDiv)
+        if DatasetParams.USE_USERDS_EVAL == True:
+            figDivs = ''
+        else:
+            figPlot = PPIPredMericsCls.consFigMetrics(y_trues, y_preds)
+            figDiv = figPlot.to_html(full_html=False, include_plotlyjs=False)
+            figDivs = figHtmlDiv.format('', figDiv)
         
         totalNumProts = len(protIds) 
         numPages = (totalNumProts // PROTS_PER_PAGE) 
@@ -596,7 +637,7 @@ class PPIPredPlotCls(object):
         for i in range(0,numPages):
             if remProts !=  0 and i == numPages-1:
                 numProts = remProts     # the last page can contain less prots than PROTS_PER_PAGE
-            figPlot = consFigPlot(starti, numProts)
+            figPlot = consFigPlot(starti, numProts, placeHolderRowNum)
             figDiv = figPlot.to_html(full_html=False, include_plotlyjs=False, post_script=updateBarsScript)
             figDivs = figDivs + figHtmlDiv.format(style, figDiv)
             starti = starti + numProts
@@ -683,7 +724,8 @@ class PPIPredPlotCls(object):
               });
           </script>
           """
-        figTitle = 'Plot of I/NI-AAs (y_true and y_pred) of @{}@ containing {} proteins predicted by @{}@: '.format(datasetName, totalNumProts, algorithm)  
+        # Note that we remove the suffix "-ppi" from the name of the algorithm (ensnet-ppi --> ensnet).
+        figTitle = 'Plot of I/NI-AAs (y_true and y_pred) of @{}@ containing {} proteins predicted by @{}@: '.format(datasetName, totalNumProts, algorithm[:-4])  
         template = \
           """
           <html>

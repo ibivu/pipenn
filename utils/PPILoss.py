@@ -26,6 +26,8 @@ class LossParams:
     MC_RESNET = 7
     NAMES = ['CROSS_ENTROPY', 'MEAN_SQUARED', 'JACCARD', 'DICE', 'TVERSKY', 'YOLO', 'ATT', 'MC_RESNET']
     LOSS_FUN = CROSS_ENTROPY
+    USE_KERAS_ENTROPY = False
+    
     # used for confusion matrix, presision, recall, f1 scores; not for auc because multiple thresholds are used for determining auc.
     CLASS_THRESHOLD = 0.40 #0.30 #0.50
     
@@ -91,7 +93,10 @@ class PPILossCls(object):
         #print(y_pred)
         #y_pred = np.clip(y_pred, K.epsilon(), 1 - K.epsilon())
         # to overcome: ValueError: Input contains NaN, infinity or a value too large for dtype('float32')
+        #col_mean = np.nanmean(y_pred, axis=0)
         #y_pred = np.nan_to_num(y_pred, nan=0.0, copy=True, posinf=1.0, neginf=0.0) # gives other problems
+        #y_pred = np.nan_to_num(y_pred, nan=col_mean, copy=True, posinf=col_mean, neginf=col_mean)
+        
         auc = roc_auc_score(y_true, y_pred, average ='weighted')
         
         return auc
@@ -131,6 +136,12 @@ class PPILossCls(object):
     
     @classmethod
     def accMetric(cls, y_true, y_pred):
+        '''
+        # Use the prints to check for the error: Input contains NaN, infinity or a value too large for dtype('float32').
+        print("11111111 %%%%%%%%%%%%%% np.argwhere y_true %%%%%%%%%%%", np.argwhere(np.isnan(y_true)))
+        print("22222222 %%%%%%%%%%%%%% np.argwhere y_true %%%%%%%%%%%", np.argwhere(np.isnan(y_pred)))
+        #'''
+        
         y_pred = y_pred >= LossParams.CLASS_THRESHOLD
         acc = accuracy_score(y_true, y_pred)
         #acc = M.binary_accuracy(y_true, y_pred)
@@ -233,6 +244,9 @@ class PPILossCls(object):
             y_true, y_pred = cls.decodeMCResnetLabels(y_true, y_pred)    
         else:
             y_true, y_pred = cls.maskPadTargetTensor(y_true, y_pred)
+        
+        if DatasetParams.USE_USERDS_EVAL == True:
+            return y_true, y_pred
         
         #print("y_true: ", y_true[0:1000])
         #print("y_pred: ", y_pred[0:1000])
@@ -588,7 +602,15 @@ class PPILossCls(object):
     
     @classmethod
     def binCrossEntropyLoss(cls, y_true, y_pred):
-        loss = y_true * (-K.log(y_pred)) + (1 - y_true) * (-K.log(1 - y_pred))
+        """
+        homo=F1Score: 47.12% MCC: 31.66% AUC: 74.68% vs. F1Score: 47.93% MCC: 32.71% AUC: 75.16% (Keras vs. own)
+        hetro=F1Score: 18.13% MCC: 9.65% AUC: 64.88% vs. F1Score: 17.80% MCC: 9.29% AUC: 63.47%  (Keras vs. own)
+        """
+        if LossParams.USE_KERAS_ENTROPY:
+            loss = K.binary_crossentropy(y_true, y_pred)
+        else:
+            loss = y_true * (-K.log(y_pred)) + (1 - y_true) * (-K.log(1 - y_pred))
+        
         if LossParams.USE_WEIGHTED_LOSS:
             lossWeights = (y_true * LossParams.LOSS_ONE_WEIGHT) + (1.0 - y_true) * LossParams.LOSS_ZERO_WEIGHT
             loss = loss * lossWeights

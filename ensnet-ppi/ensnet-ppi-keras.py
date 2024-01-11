@@ -37,8 +37,8 @@ algs = [
         cnn_rnn, 
         unet
         ]
-# This must be dynamic but for the time being we do it static.
-modelsNames = ['rnn_p' , 
+# This must be dynamic but for the time being we do it static. Must be compatible with 'algs'. Number of elements and order is important.
+modelsNames = ['rnn_p', 
                'ann_p', 
                'dnet_p', 
                'rnet_p', 
@@ -46,14 +46,37 @@ modelsNames = ['rnn_p' ,
                'unet_p', 
                'ensnet_p']
 
-#algs = [ann,rnet,cnn_rnn,unet]       #best-1 only for Epitope dataset
+#best-1 only for Epitope dataset
+#algs = [rnet,cnn_rnn,unet,ann]             #MCC: 17.52% AUC: 74.76% AP: 19.45% (for one-hot)
+#algs = [rnet,cnn_rnn,unet,ann]             #MCC: 17.05% AUC: 71.60% AP: 19.82% (for prot-bert but it was the best for onehot)    
+#algs = [dnet,rnn,rnet,cnn_rnn,unet,ann]    #MCC: 18.15% AUC: 71.83% AP: 20.19%
+#algs = [dnet,rnn,rnet,cnn_rnn,unet]        #MCC: 17.68% AUC: 73.99% AP: 21.09%
+#algs = [dnet,rnn,rnet,ann,unet]            #MCC: 17.83% AUC: 72.12% AP: 19.97%
+#algs = [dnet,rnn,rnet,unet]                #MCC: 18.54% AUC: 74.81% AP: 21.24%
+#algs = [dnet,rnn,rnet]                     #MCC: 17.52% AUC: 75.14% AP: 21.64% (embed-len-dyna)
+#algs = [dnet,rnn,rnet]                     #MCC: 19.71% AUC: 74.70% AP: 21.20% (embed-all)
+#algs = [dnet,rnn,rnet,cnn_rnn,unet]        #MCC: 19.01% AUC: 73.98% AP: 20.21%
+#algs = [dnet,rnn,rnet,cnn_rnn]             #MCC: 18.70% AUC: 73.77% AP: 19.50%
+#algs = [dnet,rnn,rnet]
+#modelsNames = ['dnet_p','rnn_p','rnet_p','ensnet_p']
 
 class AlgParams:
     ALGRITHM_NAME = "ensnet-ppi"
     logger = None
-    DatasetParams.USE_COMET = False #True
+    '''
+    # For web-service use the following:
+    DatasetParams.USE_COMET = False
+    ONLY_TEST = True
+    datasetLabel = 'UserDS_A'
+    dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
+    '''
+    DatasetParams.USE_COMET = False
+    ONLY_TEST = False
+    DatasetParams.ONE_HOT_ENCODING = True
     
-    datasetLabel = 'Biolip_N'
+    #datasetLabel = 'Epitope'
+    #dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_NOWIN
+    datasetLabel = 'Biolip_P'
     dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
     
     PLOT_METRICS_PER_PROT = False #True     #put it on True if you don't want to do anything except for plotting metrics per protein 
@@ -71,7 +94,6 @@ class AlgParams:
     ENS_RF_MODEL = False #True
     ENS_XGBOOST_MODEL = False #True
     
-    ONLY_TEST = True #False
     RANDOM_SAMPLE_TEST = False #True     #set it on True if you want to take just a random sample of your test set and not the whole data set
     
     ANN_MODEL = True #False
@@ -106,6 +128,12 @@ class AlgParams:
     
     @classmethod
     def initAlgParams(cls, dsParam=dataset, dsLabelParam=datasetLabel):
+        pipennDatasetLabel = PPIParamsCls.setPipennParams()
+        if pipennDatasetLabel != None:
+            dsLabelParam = pipennDatasetLabel
+            cls.datasetLabel = pipennDatasetLabel
+        
+        cls.logger = PPIParamsCls.setLoggers(cls.ALGRITHM_NAME, cls.datasetLabel)  
         PPIParamsCls.setInitParams(cls.ALGRITHM_NAME,dsParam=dsParam, dsLabelParam=dsLabelParam)
         cls.setShapes()
         return
@@ -238,8 +266,9 @@ def performTraining(ensTrainDataset):
     return
 
 def performTesting(modelsResults):
+    TrainingParams.SAVE_PRED_FILE = True
+    TrainingParams.GEN_METRICS_PER_PROT = True
     DatasetParams.USE_DOWN_SAMPLING = False
-    TrainingParams.GEN_METRICS_PER_PROT = False #True
     ensResults = PPITrainTestCls().testModel(modelsResults)
     return ensResults
 
@@ -255,6 +284,13 @@ def prepareEnsembleData(datasetIndex):
         cur_y_true,cur_y_pred = PPITrainTestCls.testModelForEnsembl(datasetIndex)
         stacked_y_true,stacked_y_pred = PPITrainTestCls.prepareEnsembledPreds(stacked_y_true, stacked_y_pred, cur_y_true, cur_y_pred)
     TrainingParams.resetOutputFileNames()   #leave clean the output-file-names  
+    
+    #IAA_Bar_ZK448_win_n_benchmark
+    #["A", "C", "E", "D", "G", "F", "I", "H", "K", "M", "L", "N", "Q", "P", "S", "R", "T", "W", "V", "Y", "X"], "y": 
+    # [0.008506976374640502, 0.0005702057003604014, 0.0065511400397961495, 0.004917983212652626, 0.01235468799486829, 
+    #0.003252540052315384, 0.0053325469016385196, 0.005918695161343463, 0.020155347441763737, 0.0029315167212737104, 
+    # 0.008425992840015465, 0.007403762497569683, 0.009365245855596444, 0.006340418652701821, 0.010170841708175879, 
+    # 0.023484996538209017, 0.00737787216457458, 0.0010606667211731408, 0.005048423955617522, 0.005098064055199719, 0.0]}
     
     inputData = stacked_y_pred
     labelData = stacked_y_true
@@ -292,7 +328,8 @@ def doEnsembling():
         for i in range(len(DatasetParams.EXPR_TESTING_FILE_SET)):
             if not AlgParams.USE_SAVED_ENS_DATA:
                 modelsResult = prepareEnsembleData(i)    #these are predictions of the testing set
-                PPITrainTestCls.saveEnsDataset(modelsResult, False, i)
+                if not DatasetParams.USE_USERDS_EVAL:
+                    PPITrainTestCls.saveEnsDataset(modelsResult, False, i)
             else:
                 modelsResult = PPITrainTestCls.getEnsDataset(False, i)
             modelsResults.append(modelsResult)
@@ -312,12 +349,14 @@ def doEnsembling():
             ensResults = doEnsembleTesting(modelsResults)
         return modelsResults, ensResults
     
-    AlgParams.logger = PPIParamsCls.setLoggers(AlgParams.ALGRITHM_NAME, AlgParams.datasetLabel)
+    AlgParams.initAlgParams()   #set ensemble dataset 
+    #AlgParams.logger = PPIParamsCls.setLoggers(AlgParams.ALGRITHM_NAME, AlgParams.datasetLabel)
     testingDateTime = datetime.datetime.now().strftime("%d-%m-%Y#%H:%M:%S")
     AlgParams.logger.info("\n#### Ensemble-Testing " + AlgParams.datasetLabel + " at: " + str(testingDateTime) + " ####")
     testingStartTime = time.time()
     
-    AlgParams.initAlgParams()   #set ensemble dataset 
+    TrainingParams.setEnsOutputFileNames(AlgParams.ALGRITHM_NAME)
+    #AlgParams.initAlgParams()   #set ensemble dataset 
     if not AlgParams.ONLY_TEST:
         TrainingParams.USE_ENSEMBLE_TRAINING = True
         TrainingParams.USE_DATASET_PARTITIONING = True    #must be dataset partitioned? So, you can pick up only the validation part.
@@ -357,7 +396,7 @@ def doEnsembling():
     return
     
 def plotMetricsPerProt():
-    AlgParams.logger = PPIParamsCls.setLoggers(AlgParams.ALGRITHM_NAME, AlgParams.datasetLabel)
+    #AlgParams.logger = PPIParamsCls.setLoggers(AlgParams.ALGRITHM_NAME, AlgParams.datasetLabel)
     AlgParams.initAlgParams()
     modelsAlgs = TrainingParams.ENSEMBLE_ARCHS
     modelsAlgs.append(AlgParams.ALGRITHM_NAME)

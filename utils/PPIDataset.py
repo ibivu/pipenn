@@ -4,13 +4,14 @@ import sys
 import math
 import itertools as it
 import functools
+from pathlib import Path
 
 import pandas as pd
 import numpy as np
 
 from tensorflow.keras import backend as K
 from tensorflow.keras import utils as U
-import tensorflow as tf
+#import tensorflow as tf
 
 import plotly.graph_objects as go
 import plotly
@@ -31,7 +32,21 @@ class DatasetParams(object):
     EXPR_TESTING_LABELS = None
     EXPR_TRAINING_LABEL = None
     
+    USE_USERDS_EVAL = False # Indication of user data set submitted via wenservice
+    USE_PIPENN_TEST = False # Testing a new version of pipenn (by students)
+    
+    PIPENN_HOME = '../'
     ROOT_DIR = "../data/"
+    #ROOT_DIR = "../data/Lars/"
+    
+    # The following setting must be in place when used for running from Eclipse (for testing/debugging purposes).
+    USERDS_INPUT_DIR = ROOT_DIR + 'user/input/'
+    USERDS_OUTPUT_DIR = ROOT_DIR + 'user/output/{}/'
+    USERDS_FILE = USERDS_INPUT_DIR + 'userds.csv'
+    PREPARED_USERDS_FILE_NAME = 'prepared_userds.csv'
+    PREPARED_USERDS_FILE = USERDS_INPUT_DIR + PREPARED_USERDS_FILE_NAME
+    USER_INPUT_FASTA_FILE_NAME = 'user_input.fasta'
+    USER_INPUT_FASTA_FILE = USERDS_INPUT_DIR + USER_INPUT_FASTA_FILE_NAME
     
     HOMO_TRAINING_FILE = ROOT_DIR + "homo_training.csv"
     PREPARED_HOMO_TRAINING_FILE = ROOT_DIR + "prepared_homo_training.csv"
@@ -48,16 +63,8 @@ class DatasetParams(object):
     PREPARED_EPITOPE_TRAINING_FILE = ROOT_DIR + "prepared_epitope_training.csv"
     EPITOPE_TESTING_FILE = ROOT_DIR + "epitope_testing.csv"
     PREPARED_EPITOPE_TESTING_FILE = ROOT_DIR + "prepared_epitope_testing.csv"
-    PREPARED_EPITOPE_1_TRAINING_FILE = ROOT_DIR + "epitope/expr-1/prepared_epitope_training.csv"
-    PREPARED_EPITOPE_1_TESTING_FILE = ROOT_DIR + "epitope/expr-1/prepared_epitope_testing.csv"
-    PREPARED_EPITOPE_2_TRAINING_FILE = ROOT_DIR + "epitope/expr-2/prepared_epitope_training.csv"
-    PREPARED_EPITOPE_2_TESTING_FILE = ROOT_DIR + "epitope/expr-2/prepared_epitope_testing.csv"
-    PREPARED_EPITOPE_3_TRAINING_FILE = ROOT_DIR + "epitope/expr-3/prepared_epitope_training.csv"
-    PREPARED_EPITOPE_3_TESTING_FILE = ROOT_DIR + "epitope/expr-3/prepared_epitope_testing.csv"
-    PREPARED_EPITOPE_4_TRAINING_FILE = ROOT_DIR + "epitope/expr-4/prepared_epitope_training.csv"
-    PREPARED_EPITOPE_4_TESTING_FILE = ROOT_DIR + "epitope/expr-4/prepared_epitope_testing.csv"
-    PREPARED_EPITOPE_5_TRAINING_FILE = ROOT_DIR + "epitope/expr-5/prepared_epitope_training.csv"
-    PREPARED_EPITOPE_5_TESTING_FILE = ROOT_DIR + "epitope/expr-5/prepared_epitope_testing.csv"
+    EPITOPE_TRAINING_FASTA_FILE = ROOT_DIR + "epitope_training.fasta"
+    EPITOPE_TESTING_FASTA_FILE = ROOT_DIR + "epitope_testing.fasta"
     
     """
     # These are average-window dataset (genrated by Edis python script).
@@ -101,6 +108,9 @@ class DatasetParams(object):
     PROT_VEC_ENCODINGS_FILE = ROOT_DIR + "protvec_encodings.csv"
     UNKNOWN_TRIPLET = '<unk>'
     UNKNOWN_AA = 'X' 
+    SEQ_VEC_MODEL_DIR = ROOT_DIR + "seqvec"
+    PROT_BERT_MODEL_DIR = ROOT_DIR + "protbert" #we use prot_t5_xl_uniref50.
+    PROT_BERT_EMBEDDING_DIR = './' 
     
     FEATURE_COLUMNS = None
     FEATURE_COLUMNS_ENH_NOWIN = [
@@ -309,7 +319,7 @@ class DatasetParams(object):
                    'AliSeq',
                    ]
     
-        
+    #'''
     FEATURE_COLUMNS_EPI_SEMI_NOWIN = [
                     'DYNA_q', 
                     'RSA_q', 
@@ -320,7 +330,19 @@ class DatasetParams(object):
                     'length',
                     'AliSeq',
                    ]
-    
+    '''
+    FEATURE_COLUMNS_EPI_SEMI_NOWIN = [  #NSP2 features
+                    'rel_surf_acc',
+                    'normalized_abs_surf_acc',
+                    'prob_helix',
+                    'prob_sheet',
+                    'prob_coil',
+                    'normalized_length',
+                    'AliSeq',
+                    'pssm_A','pssm_R','pssm_N','pssm_D','pssm_C','pssm_Q','pssm_E','pssm_G','pssm_H','pssm_I',
+                    'pssm_L','pssm_K','pssm_M','pssm_F','pssm_P','pssm_S','pssm_T','pssm_W','pssm_Y','pssm_V',
+                    ]
+    '''
     FEATURE_COLUMNS_EPI_SEMI_WIN = [
                     'DYNA_q', 
                     '3_wm_DYNA_q', '5_wm_DYNA_q', '7_wm_DYNA_q', '9_wm_DYNA_q', 
@@ -588,6 +610,16 @@ class DatasetParams(object):
                     '9_wm_pssm_G','9_wm_pssm_H','9_wm_pssm_I','9_wm_pssm_L','9_wm_pssm_K','9_wm_pssm_M','9_wm_pssm_F',
                     '9_wm_pssm_P','9_wm_pssm_S','9_wm_pssm_T','9_wm_pssm_W','9_wm_pssm_Y','9_wm_pssm_V',
                     ]
+    
+    # Minimum columns required for embedding + length. 
+    MIN_FEATURE_COLUMNS = [
+                    #'uniprot_id',    
+                    'sequence',
+                    #'Rlength',
+                    'normalized_length',
+                    #'any_interface', #4
+                    ]
+    
     GLOBAL_FEATURE_COLUMNS = [
                     'normalized_length',
                     ]
@@ -684,6 +716,34 @@ class DatasetParams(object):
     MC_RESNET_LABEL_LEN = None
     
     @classmethod
+    def setPreparedFiles(cls):
+        # If ROOT_DIR is different than the default (in case of testing new versions of pipenn by students) we have to set the file
+        # names again.
+        cls.PREPARED_BIOLIP_WIN_P_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_p_training.csv"
+        cls.PREPARED_BIOLIP_WIN_S_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_s_training.csv"
+        cls.PREPARED_BIOLIP_WIN_N_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_n_training.csv"
+        cls.PREPARED_BIOLIP_WIN_A_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_a_training.csv"
+        cls.PREPARED_BIOLIP_WIN_P_TESTING_FILE = cls.ROOT_DIR + "prepared_biolip_win_p_testing.csv"
+        cls.PREPARED_BIOLIP_WIN_S_TESTING_FILE = cls.ROOT_DIR + "prepared_biolip_win_s_testing.csv"
+        cls.PREPARED_BIOLIP_WIN_N_TESTING_FILE = cls.ROOT_DIR + "prepared_biolip_win_n_testing.csv"
+        cls.PREPARED_BIOLIP_WIN_A_TESTING_FILE = cls.ROOT_DIR + "prepared_biolip_win_a_testing.csv"
+        cls.PREPARED_ZK448_WIN_P_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_p_benchmark.csv"
+        cls.PREPARED_ZK448_WIN_S_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_s_benchmark.csv"
+        cls.PREPARED_ZK448_WIN_N_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_n_benchmark.csv"
+        cls.PREPARED_ZK448_WIN_A_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_a_benchmark.csv"
+        
+        cls.PREPARED_HOMO_TRAINING_FILE = cls.ROOT_DIR + "prepared_homo_training.csv"
+        cls.PREPARED_HOMO_TESTING_FILE = cls.ROOT_DIR + "prepared_homo_testing.csv"
+        cls.PREPARED_HETRO_TRAINING_FILE = cls.ROOT_DIR + "prepared_hetro_training.csv"
+        cls.PREPARED_HETRO_TESTING_FILE = cls.ROOT_DIR + "prepared_hetro_testing.csv"
+        cls.PREPARED_COMBINED_TRAINING_FILE = cls.ROOT_DIR + "prepared_combined_training.csv"
+        cls.PREPARED_COMBINED_TESTING_FILE = cls.ROOT_DIR + "prepared_combined_testing.csv"
+    
+        cls.PREPARED_EPITOPE_TRAINING_FILE = cls.ROOT_DIR + "prepared_epitope_training.csv"
+        cls.PREPARED_EPITOPE_TESTING_FILE = cls.ROOT_DIR + "prepared_epitope_testing.csv"
+        return
+    
+    @classmethod
     def setExprDatasetFiles(cls, dsLabel):
         trainingFileDict = {
             'Cross_BL_A_HH': DatasetParams.PREPARED_BIOLIP_WIN_A_TRAINING_FILE,
@@ -713,6 +773,11 @@ class DatasetParams(object):
             'Biolip_N': [DatasetParams.PREPARED_ZK448_WIN_N_BENCHMARK_FILE, DatasetParams.PREPARED_BIOLIP_WIN_N_TESTING_FILE],
             'Biolip_A': [DatasetParams.PREPARED_ZK448_WIN_A_BENCHMARK_FILE, DatasetParams.PREPARED_BIOLIP_WIN_A_TESTING_FILE],
             #'Biolip_A': [DatasetParams.PREPARED_ZK448_WIN_UA_BENCHMARK_FILE],
+            'UserDS_A': [DatasetParams.PREPARED_USERDS_FILE],
+            'UserDS_P': [DatasetParams.PREPARED_USERDS_FILE],
+            'UserDS_N': [DatasetParams.PREPARED_USERDS_FILE],
+            'UserDS_S': [DatasetParams.PREPARED_USERDS_FILE],
+            'UserDS_E': [DatasetParams.PREPARED_USERDS_FILE],
             'Epitope': [DatasetParams.PREPARED_EPITOPE_TESTING_FILE],
             'COVID_P': [DatasetParams.PREPARED_COVID_WIN_P_BENCHMARK_FILE],
         }
@@ -730,6 +795,11 @@ class DatasetParams(object):
             'Biolip_N': ['ZK448_N', 'BLTEST_N'],
             'Biolip_A': ['ZK448_A', 'BLTEST_A'],
             #'Biolip_A': ['ZK448_UA'],
+            'UserDS_A': ['UserDS_A'],
+            'UserDS_P': ['UserDS_P'],
+            'UserDS_N': ['UserDS_N'],
+            'UserDS_S': ['UserDS_S'],
+            'UserDS_E': ['UserDS_E'],
             'Epitope': ['EPI_TEST'],
             'COVID_P': ['COVID_P'],
         }
@@ -747,6 +817,7 @@ class DatasetParams(object):
             'Biolip_A': 'Biolip_A',
             'Epitope': 'Epitope',
         }
+
         cls.EXPR_DATASET_LABEL = dsLabel
         cls.EXPR_TRAINING_FILE = trainingFileDict.get(cls.EXPR_DATASET_LABEL)
         cls.EXPR_TESTING_FILE_SET = testingFileDict.get(cls.EXPR_DATASET_LABEL)
@@ -760,11 +831,11 @@ class DatasetParams(object):
         cls.FEATURES_SIZE = len(cls.FEATURE_COLUMNS)
         try:
             cls.SEQ_COLUMN_IND = cls.FEATURE_COLUMNS.index(cls.SEQ_COLUMN_NAME)
-            # One-Hot dimension = 21; Prot2vec dimension = 100
+            # One-Hot dimension = 21; Prot2vec dimension = 100; seqVec/prot-bert dimension = 1024;
             if cls.ONE_HOT_ENCODING:
                 cls.PROT_RESIDU_ENCODING_DIM = len(cls.AA_LIST)
             else:
-                cls.PROT_RESIDU_ENCODING_DIM = 100    
+                cls.PROT_RESIDU_ENCODING_DIM = 1024 #100    
             # Note that encoding replaces AliSeq; so we have to remove AliSeq from the FEATURES_SIZE.
             cls.FEATURES_SIZE_COMPENSATION = -1
         except ValueError:
@@ -829,6 +900,11 @@ class DatasetParams(object):
             'Biolip_S': ['sequence', ['s_interface']],
             'Biolip_N': ['sequence', ['n_interface']],
             'Biolip_A': ['sequence', ['any_interface']],
+            'UserDS_A': ['sequence', ['any_interface']],
+            'UserDS_P': ['sequence', ['any_interface']],
+            'UserDS_N': ['sequence', ['any_interface']],
+            'UserDS_S': ['sequence', ['any_interface']],
+            'UserDS_E': ['sequence', ['any_interface']],
             'Epitope': ['AliSeq', ['Interface1']],
             'COVID_P': ['sequence', ['p_interface']],
         }
@@ -842,7 +918,7 @@ class DatasetParams(object):
     
     @classmethod
     def getEncondingType(cls):
-        return 'One-Hot' if cls.ONE_HOT_ENCODING else 'Prot2vec'
+        return 'One-Hot' if cls.ONE_HOT_ENCODING else 'Protbert' #'Prot2vec', 'Seqvec' 
     
     @classmethod
     def getFeatureColumns(cls):
@@ -857,6 +933,8 @@ class PPIDatasetCls(object):
     oneHotDictionary = None
     protvecDictionary = None
     mcOneHotDictionary = None
+    seqvecDictionary = None
+    protbertDictionary = None
 
     @classmethod
     def setLogger(cls, loggerParam):
@@ -1010,7 +1088,7 @@ class PPIDatasetCls(object):
         
         # slicesList: [(60, 8, 22), ..., (34, 8, 22)]
         concatenatedSlices = slicesList[0]
-        for s in range(1, len(slicesList)):     
+        for s in range(1, len(slicesList)):   
             slices = slicesList[s]
             concatenatedSlices = np.concatenate([concatenatedSlices, slices], axis=0)
         
@@ -1029,10 +1107,17 @@ class PPIDatasetCls(object):
     - shape of inputData = (number of examples, PROT_IMAGE_H, PROT_IMAGE_W, PROT_IMAGE_C)
     """
     @classmethod
-    def consInputs(cls, featuresTable, inputShape):
+    def consInputs(cls, dataFile, featuresTable, protIds, inputShape):
         # featuresRow = [    mean_H             RSA_q             AliSeq ]
         # featuresRow = ['0.23,...,0.45', '0.56,...,0.34', ..., 'A,...,T']
-        def applyFeatureEncodingForEachInput(featuresRow):
+        def applyFeatureEncodingForEachInput(featuresRow, protId):
+            #check your data for NaNs and positive/negative Infs.
+            def checkDataForNanInf(featureVals):
+                s = np.sum(featureVals)
+                if np.isnan(s) or np.isinf(s):
+                    logger.warn('!!!!!!!!!========= data contains NAN or Inf')
+                return
+            
             featureVals = []
             residuVal = []
             for featureInd in range(DatasetParams.FEATURES_SIZE):
@@ -1044,7 +1129,9 @@ class PPIDatasetCls(object):
                     if DatasetParams.ONE_HOT_ENCODING:
                         residuVal = cls.getOneHotEncodings(featureStr)
                     else:    
-                        residuVal = cls.getProtvecEncodings(featureStr) 
+                        #residuVal = cls.getProtvecEncodings(featureStr) 
+                        #residuVal = cls.getSeqvecEncodings(dataFile, protId)
+                        residuVal = cls.getProtbertEncodings(dataFile, protId)
                       
                     # residuVal is a list of encodings for all residus: [c1R1,...,cnR1, c1R2,...,cnR2, ..., c1Rn,...,cnRn];
                     # we have to reshape it as: [ [c1R1,...,cnR1], 
@@ -1080,6 +1167,7 @@ class PPIDatasetCls(object):
             if m == 0:
                 featureVals = featureVals.reshape(numOfResidus,-1)
             else:
+                #print('===== residuVal.shape: ', residuVal.shape, ' ==m: ', m)
                 residuVal = np.array(residuVal).reshape((m,-1))    
             
             #nonlocal proteinCount
@@ -1093,14 +1181,14 @@ class PPIDatasetCls(object):
             # Shape featureVals: (15480,)
             #logger.info("Shape featureVals: %s", featureVals.shape)
             featureVals = cls.sliceProt2Peptides(featureVals, inputShape, DatasetParams.FEATURE_PAD_CONST)
-    
+            #checkDataForNanInf(featureVals)
+            
             # Shape featureVals: (42, 8, 22) or (34, 8, 22) or ...
             #logger.info("Shape featureVals: %s", featureVals.shape)
-            
             return featureVals
     
         proteinCount = 0
-        inputDataList = list(map(applyFeatureEncodingForEachInput, featuresTable))
+        inputDataList = list(map(applyFeatureEncodingForEachInput, featuresTable, protIds))
         inputData = cls.concatSlices(inputDataList, labelData=False)
         #print(featuresTable[0,:])
         #print(inputData[0, :, :, :])
@@ -1486,14 +1574,17 @@ class PPIDatasetCls(object):
         if partioning:
             dataset = dataset.sample(frac=DatasetParams.VALIDATION_RATE,random_state=DatasetParams.RANDOM_STATE)
         #DatasetParams.PROT_IDS = cls.getProtIds(dataset)
-        featuresTable = dataset.loc[:, DatasetParams.FEATURE_COLUMNS].values.astype(np.str)
-        labelvec = dataset.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(np.str)
+        featuresTable = dataset.loc[:, DatasetParams.FEATURE_COLUMNS].values.astype(str)
+        labelvec = dataset.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(str)
         # Shape featuresTable: (288, 20) | Shape labelVector: (288, 1)
         logger.info("Shape featuresTable: %s | Shape labelvec: %s", featuresTable.shape, labelvec.shape)
         
         #Shape inputData: (288, 32, 32, 20)
         #Shape labelData: (288, 32, 32, 1)
-        inputData = cls.consInputs(featuresTable, inputShape)
+        protIds = cls.getProtIds(dataset)
+        #cls.seqvecDictionary = None
+        cls.protbertDictionary = None
+        inputData = cls.consInputs(dataFile, featuresTable, protIds, inputShape)
         labelData = cls.consLabels(labelvec, labelShape)
         
         if DatasetParams.USE_DOWN_SAMPLING:
@@ -1651,6 +1742,32 @@ class PPIDatasetCls(object):
         print(protEncodings.shape)
         print(protEncodings) 
     
+    @classmethod
+    def getSeqvecEncodings(cls, dataFile, protId):
+        if cls.seqvecDictionary == None:
+            modelDir = Path(DatasetParams.SEQ_VEC_MODEL_DIR)
+            head, tail = os.path.split(dataFile)
+            seqvecFile = tail.replace('.csv', '.npz')
+            seqvecDictionary = np.load(modelDir/seqvecFile)
+        
+        seqvecEncodings = seqvecDictionary[protId]      #shape=(protLen,1024)
+        seqvecEncodings = seqvecEncodings.flatten()     #shape=(protLenx1024,)
+        
+        return seqvecEncodings
+    
+    @classmethod
+    def getProtbertEncodings(cls, dataFile, protId):
+        if cls.protbertDictionary == None:
+            protbertFileDir = Path(DatasetParams.PROT_BERT_EMBEDDING_DIR)
+            head, tail = os.path.split(dataFile)
+            protbertFile = tail.replace('.csv', '.npz')
+            protbertDictionary = np.load(protbertFileDir/protbertFile)
+        
+        protbertEncodings = protbertDictionary[protId]      #shape=(protLen,1024)
+        protbertEncodings = protbertEncodings.flatten()     #shape=(protLenx1024,)
+        
+        return protbertEncodings
+        
 class DatasetPreparation(object):
     @classmethod
     def getAALabel(cls, aa1LetCode):
@@ -1775,12 +1892,13 @@ class DatasetPreparation(object):
     
     @classmethod
     def normalizeData(cls, df, colNames):
+        # norm-20-2050: 
         df.fillna(DatasetParams.MISSING_VALUE_CONST, inplace=True)
         for colName in colNames:
             try:
                 if colName == DatasetParams.LEN_COL_NAME:
-                    minVal = 20 #50
-                    maxVal = 2050 #10000 #35000
+                    minVal = 26 #20 #50
+                    maxVal = 2050 #700?? #2050 #10000 #35000
                 else:
                     minVal = df[colName].min()
                     maxVal = df[colName].max()
@@ -1792,6 +1910,7 @@ class DatasetPreparation(object):
     
     @classmethod
     def normalizeData2(cls, df, colNames):
+        # norm-min-max: 
         df.fillna(DatasetParams.MISSING_VALUE_CONST, inplace=True)
         for colName in colNames:
             try:
@@ -1805,7 +1924,7 @@ class DatasetPreparation(object):
     
     @classmethod
     def normalizeData3(cls, df, colNames):
-        # both better performance and faster convergence.
+        # norm-std:
         df.fillna(DatasetParams.MISSING_VALUE_CONST, inplace=True)
         for colName in colNames:
             try:
@@ -1858,12 +1977,235 @@ class DatasetPreparation(object):
                 
         return protIds
     
+    @classmethod    
+    def createSeqvecFile(cls, dataFile):
+        CUDA_DEVICE = 0    # cuda_device=-1 for CPU; cuda_device=0 for GPU
+        
+        from allennlp.commands.elmo import ElmoEmbedder
+        import torch
+
+        def consSeqForAllProts(protIds, aavec):
+            def consSeqForEachProt(protId, aaStr):
+                # Convert 'M,D,I,R,...,E,E,A,V' to 'MDIR...EEAV'.
+                protSeq = aaStr.replace(',', '')
+                embedding = embedder.embed_sentence(list(protSeq)) # List-of-Lists with shape [3,L,1024]
+                embAtRes = torch.tensor(embedding).sum(dim=0) # Tensor with shape [L,1024]
+                #embAtProt = torch.tensor(embedding).sum(dim=0).mean(dim=0) # Vector with shape [1024]
+                embAtRes = embAtRes.numpy()
+                print('prot-id: ', protId, ' | emb-shape: ', embAtRes.shape)
+                embDict[protId] = embAtRes
+                return
+            list(map(consSeqForEachProt, protIds, aavec))   #note: without 'list()' 'map' doesn't work.
+            return embDict
+        
+        print("\n## Generating SeqVec file for @@: ", dataFile, " @@")
+        embDict = dict()
+        modelDir = Path(DatasetParams.SEQ_VEC_MODEL_DIR)
+        weights = modelDir / 'weights.hdf5'
+        options = modelDir / 'options.json'
+        embedder = ElmoEmbedder(options,weights, cuda_device=CUDA_DEVICE) 
+        
+        dataSet = pd.read_csv(dataFile)
+        protIds = dataSet.loc[:, DatasetParams.PROT_ID_NAME].values
+        aavec = dataSet.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
+        embDict = consSeqForAllProts(protIds, aavec)
+        
+        head, tail = os.path.split(dataFile)
+        seqvecFile = tail.replace('.csv', '.npz')
+        np.savez(modelDir/seqvecFile, **embDict)
+        print("\n## SeqVec file generated @@: ", modelDir/seqvecFile, " @@")
+        
+        return 
+    
+    @classmethod    
+    def createProtbertFile(cls, dataFile):
+        from transformers import TFT5EncoderModel, T5Tokenizer
+        #from transformers import TFBertModel, BertTokenizer, BertConfig
+        import numpy as np
+        import gc
+        
+        def consSeqForAllProts(protIds, aavec):
+            def consSeqForEachProt(protId, aaStr):
+                # Convert 'M,D,I,R,...,E,E,A,V' to 'M D I R...E E A V'.
+                protSeq = aaStr.replace(',', ' ')
+                ids = tokenizer.encode_plus(protSeq, add_special_tokens=True, padding=True, return_tensors="tf")
+                input_ids = ids['input_ids']
+                attention_mask = ids['attention_mask']
+                
+                embedding = model(input_ids)
+                embedding = np.asarray(embedding.last_hidden_state)
+                #print("shape-embedding: ", embedding.shape)
+                
+                #embedding = model(input_ids)[0]
+                #embedding = np.asarray(embedding)
+                
+                attention_mask = np.asarray(attention_mask)
+                protLen = (attention_mask[0] == 1).sum()
+                embAtRes = embedding[0][:protLen-1]
+                print('prot-id: ', protId, ' | emb-shape: ', embAtRes.shape)
+                embDict[protId] = embAtRes
+                return
+            list(map(consSeqForEachProt, protIds, aavec))   #note: without 'list()' 'map' doesn't work.
+            return embDict
+        
+        print("\n## Generating Protbert file for @@: ", dataFile, " @@")
+        embDict = dict()
+        modelDir = Path(DatasetParams.PROT_BERT_MODEL_DIR)
+        tokenizer = T5Tokenizer.from_pretrained(modelDir, do_lower_case=False )
+        model = TFT5EncoderModel.from_pretrained(modelDir, from_pt=True)
+        
+        print("%%%%%%%%%%% modelDir: ", modelDir)
+        #tokenizer = BertTokenizer.from_pretrained(modelDir, do_lower_case=False )
+        #model = TFBertModel.from_pretrained(modelDir, from_pt=True)
+        
+        gc.collect()
+        
+        dataSet = pd.read_csv(dataFile)
+        protIds = dataSet.loc[:, DatasetParams.PROT_ID_NAME].values
+        aavec = dataSet.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
+        embDict = consSeqForAllProts(protIds, aavec)
+        
+        protbertFileDir = Path(DatasetParams.PROT_BERT_EMBEDDING_DIR)
+        head, tail = os.path.split(dataFile)
+        protbertFile = tail.replace('.csv', '.npz')
+        np.savez(protbertFileDir/protbertFile, **embDict)
+        print("\n## ProtBert file generated @@: ", protbertFileDir/protbertFile, " @@")
+        
+        return
+    
+    @classmethod    
+    def createFastaFile(cls, dataFile):
+        MAX_PROTS_IN_ONE_FILE = 50
+        FASTA_DIR = "/fasta-dir/"
+        
+        def consFastaForAllProts(protIds, aavec):
+            def consFastaForEachProt(protId, aaStr):
+                # Convert 'M,D,I,R,...,E,E,A,V' to 'MDIR...EEAV'.
+                protSeq = aaStr.replace(',', '')
+                fastaDict[protId] = protSeq
+                return
+            list(map(consFastaForEachProt, protIds, aavec))   #note: without 'list()' 'map' doesn't work.
+            return fastaDict
+        
+        def saveFastaFile(dataFile, fastaDict):
+            fastaTupleList = list(fastaDict.items())
+            totalProts = len(fastaTupleList)
+            numFastaFiles = totalProts // MAX_PROTS_IN_ONE_FILE
+            rem = totalProts / MAX_PROTS_IN_ONE_FILE
+            if rem != 0:
+                numFastaFiles = numFastaFiles + 1
+            print("totalProts: ", totalProts, " || numFastaFiles: ", numFastaFiles)
+              
+            protCountPerFile = 1
+            curFileNum = 1
+            for key, value in fastaDict.items():
+                if protCountPerFile == 1 : 
+                    head, tail = os.path.split(dataFile)
+                    head = head + FASTA_DIR
+                    fastaFile = head + tail.replace('.csv', '-'+str(curFileNum)+'.fasta')
+                    outFile = open(fastaFile, "w+")
+                    
+                outFile.write(">" + key + "\n")
+                outFile.write(value + "\n")
+                
+                if protCountPerFile < MAX_PROTS_IN_ONE_FILE: 
+                    protCountPerFile = protCountPerFile + 1
+                else:
+                    protCountPerFile = 1
+                    curFileNum = curFileNum + 1
+                    outFile.close()
+                    print("\n## Fasta file generated @@: ", fastaFile, " @@")
+            outFile.close()
+            print("\n## Fasta file generated @@: ", fastaFile, " @@")
+            return
+        
+        print("\n## Generating Fasta file for @@: ", dataFile, " @@")
+        fastaDict = dict()
+        dataSet = pd.read_csv(dataFile)
+        protIds = dataSet.loc[:, DatasetParams.PROT_ID_NAME].values
+        aavec = dataSet.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
+        fastaDict = consFastaForAllProts(protIds, aavec)
+        saveFastaFile(dataFile, fastaDict)
+        return
+    
+    @classmethod    
+    def createNsp2File(cls, dataFile):
+        import glob
+        
+        # This directory contains files generated by 'GenerateFeatures' using NSP2 and MMSEQS.
+        # Example: 'userds_prepared_epitope_testing-1.fasta.csv' ; 'userds_prepared_epitope_testing-2.fasta.csv' 
+        NSP2_DIR = "/nsp2-dir/"
+        NSP2_OUTPUT_DIR = "/nsp2-dir/output/"
+        LABEL_COL_NAME_IN_NSP2_FILE = 'any_interface' 
+        SEQ_COLUMN_NAME_IN_NSP2_FILE = 'sequence'
+        DOM_COLUMN_NAME_IN_NSP2_FILE = 'domain'
+
+        def createMergedDataset(subFiles):
+            numFiles = len(subFiles)
+            print("There are " + str(numFiles) + " sub-files.")
+            datasets = []
+            for subFile in subFiles:
+                dataset = pd.read_csv(subFile, index_col=None, header=0)
+                datasets.append(dataset)
+            mergedDataset = pd.concat(datasets)
+            return mergedDataset
+        
+        def adjustMergedDataset(mergedDataset, dataFile):
+            origDataset = pd.read_csv(dataFile, index_col=None, header=0)
+            intCol = origDataset[DatasetParams.LABEL_COL_NAME].values.astype(str)
+            # Drop interface column ('any_interface') and domain ('domain') from the mergedDataset (based on generated files) 
+            mergedDataset = mergedDataset.drop([DOM_COLUMN_NAME_IN_NSP2_FILE, LABEL_COL_NAME_IN_NSP2_FILE], axis=1)
+            # Rename interface column from 'sequence' to e.g., 'AliSeq'
+            mergedDataset = mergedDataset.rename(columns={SEQ_COLUMN_NAME_IN_NSP2_FILE:DatasetParams.SEQ_COLUMN_NAME})
+            mergedDataset[DatasetParams.LABEL_COL_NAME] = intCol
+            return mergedDataset
+        
+        print("\n## Generating NSP2 file for @@: ", dataFile, " @@")
+        head, tail = os.path.split(dataFile)    # tail = prepared_epitope_testing.csv ; head = ../data
+        origFile = tail.replace('.csv', '')         # tail = prepared_epitope_testing
+        searchPattern = head + NSP2_DIR + '*' + origFile + '*'
+        subFiles = glob.glob(searchPattern)
+        mergedDataset = createMergedDataset(subFiles)
+        nsp2File = head + NSP2_OUTPUT_DIR + origFile + '.csv'
+        mergedDataset = adjustMergedDataset(mergedDataset, dataFile)
+        mergedDataset.to_csv(nsp2File, index=False)
+        print("\n## NSP2 file generated @@: ", nsp2File, " @@")
+        
+        return
+    
+    @classmethod    
+    def checkDatasetFile(cls, dataFile):
+        MAX_PROT_LEN = 700
+        
+        head, tail = os.path.split(dataFile)    
+        #origFile = tail.replace('.csv', '') 
+        dataFile = head + '/nsp2-dir/output/' + tail
+        print("\n## Checking for consistency of file @@: ", dataFile, " @@")
+        
+        origDataset = pd.read_csv(dataFile, index_col=None, header=0) 
+        idCol = origDataset[DatasetParams.PROT_ID_NAME] 
+        seqCol = origDataset[DatasetParams.SEQ_COLUMN_NAME]
+        intCol = origDataset[DatasetParams.LABEL_COL_NAME]
+        for i in range(len(idCol)):
+            protId = idCol[i]
+            seqLen = len(seqCol[i].replace(',', ''))
+            intLen = len(intCol[i].replace(',', '')) 
+            #if seqLen > MAX_PROT_LEN:
+            #    print("Length of sequence greater than max: ", protId, ": ", seqLen, ": ", MAX_PROT_LEN)
+            if seqLen != intLen:
+                print("Length of sequence and interface are different for: ", protId, ": ", seqLen, ": ", intLen)
+                
+        return
+    
     @classmethod
-    def prepareData(cls, origFileName, preparedFileName=None, labelConv=True, includeId=False):
+    def prepareData(cls, origFileName, preparedFileName=None, labelConv=True, includeId=False, dfDataset=None):
         if preparedFileName != None:
             print("\n## Generating prepared data for @@: " + preparedFileName + " @@")
             
-        dataset = pd.read_csv(origFileName)
+        if dfDataset is None:
+            dataset = pd.read_csv(origFileName)
+        else:
+            dataset = dfDataset
         if labelConv:
             dataset = cls.convertLabels(dataset, DatasetParams.LABEL_COL_NAME)
         protLens = cls.getProtLens(dataset)
@@ -1886,15 +2228,16 @@ class DatasetPreparation(object):
         labelIndex = dataset.columns.get_loc(DatasetParams.LABEL_COL_NAME)
         #print(featureIndexes)
         for i in range(len(protLens)):
-            protLen = protLens[i]
+            protLen = int(protLens[i])
             #print(protLen)
             
-            # Note: dataset.loc[protIndex:protIndex+protLen, DatasetParams.LABEL_COL_NAME] has a bug. It takes one additional item from the next protein.
-            numOnes = np.count_nonzero(dataset.iloc[protIndex:protIndex+protLen, labelIndex])
-            if numOnes == 0:
-                #print('The protein is removed from dataset due to not having any interface: ', protLen)
-                protIndex += protLen
-                continue
+            if dfDataset is None:   # Do this only for the training and test datasets and not for user input darasets.
+                # Note: dataset.loc[protIndex:protIndex+protLen, DatasetParams.LABEL_COL_NAME] has a bug. It takes one additional item from the next protein.
+                numOnes = np.count_nonzero(dataset.iloc[protIndex:protIndex+protLen, labelIndex])
+                if numOnes == 0:
+                    #print('The protein is removed from dataset due to not having any interface: ', protLen)
+                    protIndex += protLen
+                    continue
                 
             
             # 'features' is a matrix where columns are part of the original dataset that we have selected, and rows are all residu's of one protein (of length n):
@@ -1982,7 +2325,7 @@ class DatasetPreparation(object):
         #print(nonpinds)
         for proti in nonpinds:
             prot_y_true = df1.iloc[proti, df1.columns.get_loc('any_interface')]
-            prot_y_true = np.fromstring(prot_y_true, dtype=np.float64, sep=',').tolist()
+            prot_y_true = np.fromstring(prot_y_true, dtype= DatasetParams.FLOAT_TYPE, sep=',').tolist()
             prot_y_true = [str(0) for i in prot_y_true]
             prot_y_true = ",".join(prot_y_true)
             #print(prot_y_true)
@@ -1991,24 +2334,33 @@ class DatasetPreparation(object):
         return
     
     @classmethod
-    def prepareBiolipWinData(cls, origFileName, preparedFileName):
-        cls.prepareData(origFileName, preparedFileName, labelConv=False, includeId=True)
+    def prepareBiolipWinData(cls, origFileName, preparedFileName, dfDataset=None):
+        cls.prepareData(origFileName, preparedFileName, labelConv=False, includeId=True, dfDataset=dfDataset)
         
         return
     
     @classmethod
     def prepareCombinedData(cls, homoFile, hetroFile, combinedFile,  includeId=False):    
         print("\n## Generating combined-prepared data for @@: " + combinedFile + " @@")
-        homoDataset = cls.prepareData(homoFile, includeId=includeId)
-        hetroDataset = cls.prepareData(hetroFile, includeId=includeId)
+        homoDataset = cls.prepareData(homoFile)
+        hetroDataset = cls.prepareData(hetroFile)
+        combDatasetList = [homoDataset, hetroDataset]
+        combDataset = pd.concat(combDatasetList)
+        if includeId:
+            numHomoProts = homoDataset.shape[0]
+            numHetroProts = hetroDataset.shape[0]
+            numCombProts = numHomoProts + numHetroProts
+            protIds = ['prot-'+str(i) for i in range(numCombProts)]
+            combDataset[DatasetParams.PROT_ID_NAME] = protIds
         
         if os.path.exists(combinedFile):
             os.remove(combinedFile)
         #with open(combinedFile, 'a') as f:    #problem: additional blank rows in the dataset. 
         #    homoDataset.to_csv(f, index=False)
         #   hetroDataset.to_csv(f, index=False, header=False)
-        homoDataset.to_csv(combinedFile, index=False)
-        hetroDataset.to_csv(combinedFile, mode='a', index=False, header=False)
+        #homoDataset.to_csv(combinedFile, index=False)
+        #hetroDataset.to_csv(combinedFile, mode='a', index=False, header=False)
+        combDataset.to_csv(combinedFile, index=False)
         
         return
     
@@ -2112,7 +2464,7 @@ class DatasetPreparation(object):
     @classmethod    
     def generateIPBs(cls, dataFile, bins):
         dataSet = pd.read_csv(dataFile)
-        labelvec = dataSet.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(np.str)
+        labelvec = dataSet.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(str)
         labelData = cls.consFeatureValForAllProts(labelvec)
         # (45,) array of list
         #print(labelData.shape)
@@ -2345,9 +2697,9 @@ class DatasetPreparation(object):
             return binAAPercent, globAAPercent
         
         dataSet = pd.read_csv(dataFile)
-        labelvec = dataSet.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(np.str)
+        labelvec = dataSet.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(str)
         labelData = cls.consFeatureValForAllProts(labelvec)
-        aavec = dataSet.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(np.str)
+        aavec = dataSet.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
         aaData = cls.consAAForAllProts(aavec)
         # (45,) array of list
         #print(aaData.shape)
@@ -2513,7 +2865,7 @@ class DatasetPreparation(object):
         statDataset = pd.read_csv(statFile)
         
         pssmAAList = consPPSMAAList()
-        aavec = protDataset.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(np.str)
+        aavec = protDataset.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
         aaData = cls.consAAForAllProts(aavec)
         numProts = aaData.size
         for proti in range(0, numProts):
@@ -2601,6 +2953,7 @@ def genPreparedSerendipFiles(onlyTest=False):
     DatasetParams.LABEL_COL_NAME = 'Interface1'
     DatasetPreparation.prepareData(DatasetParams.HOMO_TESTING_FILE, DatasetParams.PREPARED_HOMO_TESTING_FILE, includeId=True)
     DatasetPreparation.prepareData(DatasetParams.HETRO_TESTING_FILE, DatasetParams.PREPARED_HETRO_TESTING_FILE, includeId=True)
+    DatasetPreparation.prepareCombinedData(DatasetParams.HOMO_TRAINING_FILE, DatasetParams.HETRO_TRAINING_FILE, DatasetParams.PREPARED_COMBINED_TRAINING_FILE, includeId=True)
     """
     DatasetPreparation.prepareData(DatasetParams.HOMO_TRAINING_FILE, DatasetParams.PREPARED_HOMO_TRAINING_FILE, includeId=True)
     DatasetPreparation.prepareData(DatasetParams.HOMO_TESTING_FILE, DatasetParams.PREPARED_HOMO_TESTING_FILE, includeId=True)
@@ -2806,9 +3159,100 @@ def genVennBiolipFiles():
     labels = ['BioDL_P_TR', 'BioDL_S_TR', 'BioDL_N_TR']
     DatasetPreparation.genVenn3BiolipDS(datasets, labels)
     return
-   
+
+def genEpitopSeqvecFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_EPITOPE_TRAINING_FILE)
+    DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_EPITOPE_TESTING_FILE)
+    return
+
+def genEpitopProtBertFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    #DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_EPITOPE_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_EPITOPE_TESTING_FILE)
+    return
+
+def genBiolipProtBertFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'sequence'
+    """
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_A_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_A_TESTING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_ZK448_WIN_A_BENCHMARK_FILE)
+    
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_P_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_P_TESTING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_ZK448_WIN_P_BENCHMARK_FILE)
+    
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_S_TESTING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_ZK448_WIN_S_BENCHMARK_FILE)
+    """
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_N_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_N_TESTING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_ZK448_WIN_N_BENCHMARK_FILE)
+    return
+
+def genSerendipSeqvecFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    #"""
+    #DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_HOMO_TRAINING_FILE)
+    #DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_HOMO_TESTING_FILE)
+    #DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_HETRO_TRAINING_FILE)
+    #DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_HETRO_TESTING_FILE)
+    DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_COMBINED_TRAINING_FILE)
+    DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_COMBINED_TESTING_FILE)
+    #"""
+    return
+
+def genSerendipProtBertFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_COMBINED_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_HOMO_TESTING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_HETRO_TESTING_FILE)
+    return
+
+def genBiolipSeqvecFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'sequence'
+    DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE)
+    DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_BIOLIP_WIN_S_TESTING_FILE)
+    DatasetPreparation.createSeqvecFile(DatasetParams.PREPARED_ZK448_WIN_S_BENCHMARK_FILE)
+    return
+
+def genFastaEpitopeFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    DatasetPreparation.createFastaFile(DatasetParams.PREPARED_EPITOPE_TRAINING_FILE)
+    DatasetPreparation.createFastaFile(DatasetParams.PREPARED_EPITOPE_TESTING_FILE)
+    return
+
+def genNsp2EpitopeFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    DatasetParams.LABEL_COL_NAME = 'Interface1'
+    DatasetPreparation.createNsp2File(DatasetParams.PREPARED_EPITOPE_TRAINING_FILE)
+    DatasetPreparation.createNsp2File(DatasetParams.PREPARED_EPITOPE_TESTING_FILE)
+    return
+
+def checkEpitopeFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    DatasetParams.LABEL_COL_NAME = 'Interface1'
+    DatasetPreparation.checkDatasetFile(DatasetParams.PREPARED_EPITOPE_TRAINING_FILE)
+    DatasetPreparation.checkDatasetFile(DatasetParams.PREPARED_EPITOPE_TESTING_FILE)
+    return
+  
 if __name__ == "__main__":
-    genVennBiolipFiles()
+    #checkEpitopeFiles()
+    
+    #genNsp2EpitopeFiles()
+    
+    #genFastaEpitopeFiles()
+    
+    #genSerendipSeqvecFiles()
+    #genEpitopSeqvecFiles()
+    #genBiolipSeqvecFiles()
+    
+    genEpitopProtBertFiles()
+    #genSerendipProtBertFiles()
+    
+    #genVennBiolipFiles()
     #genUpdatedBiolipFile()
     #genPreparedSerendipFiles(onlyTest=False) 
     #genPreparedEpitopeFiles(onlyTest=False)

@@ -32,7 +32,6 @@ from treelib import Tree, Node
 from PPIDataset import PPIDatasetCls, DatasetParams
 from PPILoss import PPILossCls, LossParams
 from PPIPredPlot import PPIPredPlotCls, PPIPredMericsCls
-from Attention import AttentionLayer
 
 # you can't put these statements in a function. Setting seed doesn't have any effect any more.
 SEED_VAL = 50 #7
@@ -41,9 +40,37 @@ SEED_VAL = 50 #7
 tf.random.set_seed(SEED_VAL)
 np.random.seed(SEED_VAL)
 # we need to include these statements because of a bug in cuda-module for RTX gpus. There is no issue with GTX gpus.
+"""
 gpu_devices = tf.config.experimental.list_physical_devices('GPU') 
 for device in gpu_devices: 
     tf.config.experimental.set_memory_growth(device, True)
+"""
+def doesTFUseGPU():
+    if tf.test.gpu_device_name():
+        print('###### Default GPU Device:{}'.format(tf.test.gpu_device_name()))
+        print("###### Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+        return True
+    else:
+        print("$$$$$$ Please install GPU version of TF")
+    return False 
+
+def limitgpu(maxmem):
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        # Restrict TensorFlow to only allocate a fraction of GPU memory
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_virtual_device_configuration(gpu,
+                        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=maxmem)])
+        except RuntimeError as e:
+            # Virtual devices must be set before GPUs have been initialized
+            print(e)
+    return 
+
+if doesTFUseGPU():
+    memLimit = 6000 #6G
+    #print('Limiting GPU memory use to: ', memLimit)
+    #limitgpu(memLimit)  
 
 logger = None
 
@@ -70,13 +97,19 @@ class TrainingParams(object):
     ENSEMBLE_ARCHS = []
     ALGRITHM_NAME = None
     CUSTOM_OBJECTS = {}
-    METRICS_PER_PROT_FILE = "../models/{}/metrics-per-prot-{}.csv"
-    MODEL_SAVE_FILE = "../models/{}/{}-model.hdf5"
-    TB_STAT_DIR = "../models/{}/{}-TB-Stats"
-    MODEL_PLOT_FILE = "../models/{}/{}-model-plot.png"
-    MODEL_PRED_FILE = "../models/{}/preds-{}.csv"
+    
+    MODEL_DIR = "../models/{}/"
+    MODEL_OUTPUT_DIR = "../models/{}/"
+    METRICS_PER_PROT_FILE = "metrics-per-prot-{}.csv"
+    MODEL_SAVE_FILE = "{}-model.hdf5"
+    TB_STAT_DIR = "{}-TB-Stats"
+    MODEL_PLOT_FILE = "{}-model-plot.png"
+    MODEL_PRED_FILE = "preds-{}.csv"
+    ENS_TRAIN_FILE = "ens_training_{}.csv"
+    ENS_TEST_FILE = "ens_testing_{}.csv"
+    MODEL_PARAMS_FILE = "{}-model-params.txt"
+    
     SAVE_PRED_FILE = False
-    MODEL_PARAMS_FILE = "../models/{}/{}-model-params.txt"
     INPUT_SHAPE = None      #train inputShape without sample-size
     LABEL_SHAPE = None      #train labelShape without sample-size   
     TRAIN_SHAPE = []        #[inputShape, labelShape] for train; each including sample-size
@@ -85,8 +118,6 @@ class TrainingParams(object):
     NUM_ITERATIONS = 0
     TRAIN_DURATION = None
     ENS_DATA_COLUMNS = []    #This is a dynamic list, depending on the number of algorithms used for ensembling
-    ENS_TRAIN_FILE = "../models/{}/ens_training_{}.csv"
-    ENS_TEST_FILE = "../models/{}/ens_testing_{}.csv"
     
     ADAM_OPT = 0
     SGD_OPT = 1
@@ -111,7 +142,8 @@ class TrainingParams(object):
     DROPOUT_RATE = 0.2
     LEARNING_RATE = 1e-4 #1e-3 #1e-5
     REG_LAMDA = 0.001
-    DECAY_RATE = 0.09 #1e-6 #0.9
+    DECAY_RATE1 = 0.9
+    DECAY_RATE2 = 0.999
     MOMENTUM_RATE = 0.7 #0.2 #0.9 #0.5 #0.4 #1.5
     EPSILON_RATE = 1e-8 #1e-2 #1e-8
     NUM_EPOCS = 800 #400 #200
@@ -139,19 +171,70 @@ class TrainingParams(object):
     
     @classmethod
     def resetOutputFileNames(cls):
-        cls.MODEL_SAVE_FILE = "../models/{}/{}-model.hdf5"
-        cls.TB_STAT_DIR = "../models/{}/{}-TB-Stats"
-        cls.MODEL_PLOT_FILE = "../models/{}/{}-model-plot.png"
-        cls.MODEL_PRED_FILE = "../models/{}/preds-{}.csv"
-        cls.MODEL_PARAMS_FILE = "../models/{}/{}-model-params.txt"
+        if DatasetParams.USE_USERDS_EVAL:
+            modelDir = DatasetParams.PIPENN_HOME + 'models/all-models/'
+        elif DatasetParams.USE_PIPENN_TEST:
+            modelDir = "./models/"
+        else:
+            modelDir = "../models/"
+            
+        cls.MODEL_DIR = modelDir + "{}/"
+        cls.MODEL_OUTPUT_DIR = modelDir + "{}/"
+        cls.MODEL_SAVE_FILE = "{}-model.hdf5"
+        cls.METRICS_PER_PROT_FILE = "metrics-per-prot-{}.csv"
+        cls.TB_STAT_DIR = "{}-TB-Stats"
+        cls.MODEL_PLOT_FILE = "{}-model-plot.png"
+        cls.MODEL_PRED_FILE = "preds-{}.csv"
+        cls.MODEL_PARAMS_FILE = "{}-model-params.txt"
+        #cls.ENS_TRAIN_FILE = "ens_training_{}.csv"
+        #cls.ENS_TEST_FILE = "ens_testing_{}.csv"
         return
     
     @classmethod
+    def getUserDSModelFile(cls):
+        modelDir = DatasetParams.PIPENN_HOME + 'models/all-models/'
+        userDSModelDirDict = {
+            'UserDS_P': modelDir + 'biolip-p/',
+            'UserDS_S': modelDir + 'biolip-s/',
+            'UserDS_N': modelDir + 'biolip-n/',
+            'UserDS_A': modelDir + 'biolip-a/',
+        }
+        return userDSModelDirDict.get(DatasetParams.EXPR_DATASET_LABEL)
+    
+    @classmethod
+    def setEnsOutputFileNames(cls, algorithmName):
+        cls.resetOutputFileNames()
+        if DatasetParams.USE_USERDS_EVAL:
+            outputDir = DatasetParams.USERDS_OUTPUT_DIR.format(algorithmName)        
+        else:
+            outputDir = cls.MODEL_OUTPUT_DIR.format(algorithmName)
+        
+        cls.ENS_TRAIN_FILE = outputDir + cls.ENS_TRAIN_FILE
+        cls.ENS_TEST_FILE = outputDir + cls.ENS_TEST_FILE
+        return 
+    
+    @classmethod
     def setOutputFileNames(cls, algorithmName):
-        cls.MODEL_SAVE_FILE = cls.MODEL_SAVE_FILE.format(algorithmName, algorithmName)
-        cls.TB_STAT_DIR = cls.TB_STAT_DIR.format(algorithmName, algorithmName)
-        cls.MODEL_PLOT_FILE = cls.MODEL_PLOT_FILE.format(algorithmName, algorithmName)
-        cls.MODEL_PARAMS_FILE = cls.MODEL_PARAMS_FILE.format(algorithmName, algorithmName)
+        cls.resetOutputFileNames()
+        if DatasetParams.USE_USERDS_EVAL:
+            modelDir = cls.getUserDSModelFile()
+            outputDir = DatasetParams.USERDS_OUTPUT_DIR.format(algorithmName)        
+        else:
+            modelDir = cls.MODEL_DIR.format(algorithmName)
+            outputDir = cls.MODEL_OUTPUT_DIR.format(algorithmName)
+        
+        # used for both training and testing
+        cls.MODEL_SAVE_FILE = modelDir + cls.MODEL_SAVE_FILE.format(algorithmName)
+        
+        # used only for training
+        cls.TB_STAT_DIR = outputDir + cls.TB_STAT_DIR.format(algorithmName)
+        cls.MODEL_PARAMS_FILE = outputDir + cls.MODEL_PARAMS_FILE.format(algorithmName)
+        cls.MODEL_PLOT_FILE = outputDir + cls.MODEL_PLOT_FILE.format(algorithmName)
+        
+        # the name of these output files depend on testing label which are set during eval of testing files. 
+        # So, here we set only the correct directory.
+        cls.METRICS_PER_PROT_FILE = outputDir + cls.METRICS_PER_PROT_FILE
+        cls.MODEL_PRED_FILE = outputDir + cls.MODEL_PRED_FILE
         return
     
     @classmethod
@@ -267,7 +350,14 @@ class ModelCheckPointAtMaxAuc(Callback):
         #print('0000000 keras-auc: ', logs.get('val_auc'))
         #valLoss = 0.0
         y_true, y_pred = PPITrainTestCls.doEvaluation(self.model, self.valX, self.valY)
-        currentAuc = PPILossCls.logTrainingMetrics(epoch, loss, valLoss, y_true, y_pred)
+        
+        try:
+            currentAuc = PPILossCls.logTrainingMetrics(epoch, loss, valLoss, y_true, y_pred)
+        except Exception as e: #in case of problems regarding gradient explosion (NaNs, Infs) we stop the training.
+            self.model.stop_training = True
+            logger.warn("### Stopping the training because of an exception (Nan/Inf)." + "\nException was: " + str(e))
+            return
+            
         if TrainingParams.MODEL_CHECK_POINT_MODE == -1:
             currentAuc = valLoss
         if TrainingParams.MODEL_CHECK_POINT_MODE * (currentAuc - self.bestAuc) > self.minDelta:
@@ -385,14 +475,21 @@ class PPITrainTestCls(object):
         #theMetrics = [aucMetric]
         theMetrics = []
         if TrainingParams.OPT_FUN == TrainingParams.ADAM_OPT:
-            #theOptimizer = tf.train.AdamOptimizer(learning_rate=TrainingParams.LEARNING_RATE, beta1=0.9, beta2=0.999, epsilon=TrainingParams.EPSILON_RATE)
-            theOptimizer = Adam(learning_rate=TrainingParams.LEARNING_RATE, beta_1=0.9, beta_2=0.999, epsilon=TrainingParams.EPSILON_RATE)
+            # use  clipnorm or  clipvalue.
+            # clipnorm=1.0 means: if the vector norm for a gradient exceeds 1.0, then the values in the vector will be rescaled so that the norm of 
+            # the vector equals 1.0.
+            # clipvalue=0.5 means: if a gradient value was less than -0.5, it is set to -0.5 and if it is more than 0.5, then it 
+            # will be set to 0.5.
+            theOptimizer = Adam(learning_rate=TrainingParams.LEARNING_RATE, beta_1=TrainingParams.DECAY_RATE1, beta_2=TrainingParams.DECAY_RATE2, 
+                                #clipvalue=0.5,
+                                #clipnorm=1.0,
+                                epsilon=TrainingParams.EPSILON_RATE)
         elif TrainingParams.OPT_FUN == TrainingParams.SGD_OPT:
             #theOptimizer = SGD(TrainingParams.LEARNING_RATE)
             pass
         elif TrainingParams.OPT_FUN == TrainingParams.RMS_OPT:
-            #theOptimizer = tf.train.RMSPropOptimizer(learning_rate=TrainingParams.LEARNING_RATE, decay=TrainingParams.DECAY_RATE, momentum=TrainingParams.MOMENTUM_RATE, epsilon=TrainingParams.EPSILON_RATE)
-            theOptimizer = RMSprop(learning_rate=TrainingParams.LEARNING_RATE, rho=0.9,  momentum=TrainingParams.MOMENTUM_RATE, epsilon=TrainingParams.EPSILON_RATE)
+            theOptimizer = RMSprop(learning_rate=TrainingParams.LEARNING_RATE, rho=0.9,  momentum=TrainingParams.MOMENTUM_RATE, 
+                                   epsilon=TrainingParams.EPSILON_RATE)
         
         # we get problems (in custom-loss) if we don't add 'experimental_run_tf_function=False'.    
         #model.compile(loss=theLoss, optimizer=theOptimizer, metrics=theMetrics, experimental_run_tf_function=False)
@@ -451,8 +548,8 @@ class PPITrainTestCls(object):
             y_pred = concatListItems(predList) 
         else:
             y_true = valY
-            #y_pred = model.predict(valX, batch_size=TrainingParams.BATCH_SIZE)
-            y_pred = model.predict(valX, batch_size=None)
+            #y_pred = model.predict(valX, verbose=TrainingParams.VERBOSE_INDICATOR, batch_size=TrainingParams.BATCH_SIZE)
+            y_pred = model.predict(valX, verbose=TrainingParams.VERBOSE_INDICATOR, batch_size=None)
         
         #y_true.shape:  (24, 512, 1) ;; y_pred.shape:  (24, 512, 1)
         #y_true.shape:  (1, 4417, 1) ;; y_pred.shape:  (1, 4417, 1)
@@ -725,25 +822,45 @@ class PPITrainTestCls(object):
             DatasetParams.COMET_EXPERIMENT.log_parameters(params)
         return
     
+    @classmethod  
+    def getMaxProtLen(cls):
+        # The max protein length is PROT_IMAGE_H.
+        if len(TrainingParams.INPUT_SHAPE) == 2:
+            maxProtLen = TrainingParams.INPUT_SHAPE[0]
+        # The max protein length is PROT_IMAGE_H * PROT_IMAGE_W if 2D-model used.
+        elif len(TrainingParams.INPUT_SHAPE) == 3:
+            maxProtLen = TrainingParams.INPUT_SHAPE[0] * TrainingParams.INPUT_SHAPE[1]
+        else:
+            raise Exception("Invalid input-shape: ", TrainingParams.INPUT_SHAPE)
+            
+        return maxProtLen
+    
     @classmethod    
     def savePredFile(cls, dataFile, flat_y_true, flat_y_pred, testingLabel):
         testDataset = pd.read_csv(dataFile)
-        protSeqs = testDataset.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(np.str)
+        protSeqs = testDataset.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
         protIds = testDataset.loc[:, DatasetParams.PROT_ID_NAME].values
         protLens = testDataset.loc[:, DatasetParams.REAL_LEN_COL_NAME].values
         numProts = len(protSeqs)
         starti = 0
         predData = []
+        flat_y_true = flat_y_true.numpy()
+        flat_y_pred = flat_y_pred.numpy()
         for proti in range(0, numProts):
-            protAA = protSeqs[proti] #'str,...,str'
             protLen = protLens[proti]
+            # If we have removed proteins longer than max-len then we have to remove them here as well.
+            maxProtLen = cls.getMaxProtLen()
+            if DatasetParams.SKIP_SLICING == True and protLen > maxProtLen:
+                continue
             protId = protIds[proti]
+            protAA = protSeqs[proti] #'str,...,str'
             prot_y_true = ",".join(str(e) for e in flat_y_true[starti:starti+protLen]) #'float,...,float'
             prot_y_pred = ",".join(str(e) for e in flat_y_pred[starti:starti+protLen]) #'float,...,float'
             starti = starti + protLen
             predData.append([protId,protAA,prot_y_true,prot_y_pred])
             
-        predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+        #predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+        predFile = TrainingParams.MODEL_PRED_FILE.format(testingLabel)
         dataset = pd.DataFrame(predData, columns=PPIPredPlotCls.PRED_COLUMNS)
         print("\n## Generating pred-data for @@: " + predFile + " @@")
         dataset.to_csv(predFile, index=False) 
@@ -789,7 +906,8 @@ class PPITrainTestCls(object):
     
     @classmethod 
     def genPredPlotFromSavedFile(cls, testingLabel):
-        predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+        #predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+        predFile = TrainingParams.MODEL_PRED_FILE.format(testingLabel)
         figFile = PPIPredPlotCls.generatePredPlot(predFile, testingLabel, TrainingParams.ALGRITHM_NAME)
         return figFile
     
@@ -797,10 +915,12 @@ class PPITrainTestCls(object):
     def getEnsDataset(cls, training, testDatasetIndex=None):
         if training:
             datasetLabel = DatasetParams.EXPR_TRAINING_LABEL
+            #ensDataFile = TrainingParams.ENS_TRAIN_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
             ensDataFile = TrainingParams.ENS_TRAIN_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
         else:
             datasetLabel = DatasetParams.EXPR_TESTING_LABELS[testDatasetIndex]
-            ensDataFile = TrainingParams.ENS_TEST_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
+            #ensDataFile = TrainingParams.ENS_TEST_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
+            ensDataFile = TrainingParams.ENS_TEST_FILE.format(datasetLabel)
         
         ensDataset = pd.read_csv(ensDataFile) 
         ensDataset = ensDataset.to_numpy()          #(84941,7) 
@@ -824,10 +944,12 @@ class PPITrainTestCls(object):
         
         if training:
             datasetLabel = DatasetParams.EXPR_TRAINING_LABEL
-            ensDataFile = TrainingParams.ENS_TRAIN_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
+            #ensDataFile = TrainingParams.ENS_TRAIN_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
+            ensDataFile = TrainingParams.ENS_TRAIN_FILE.format(datasetLabel)
         else:
             datasetLabel = DatasetParams.EXPR_TESTING_LABELS[testDatasetIndex] 
-            ensDataFile = TrainingParams.ENS_TEST_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
+            #ensDataFile = TrainingParams.ENS_TEST_FILE.format(TrainingParams.ALGRITHM_NAME, datasetLabel)
+            ensDataFile = TrainingParams.ENS_TEST_FILE.format(datasetLabel)
         dataset = pd.DataFrame(ensData, columns=TrainingParams.ENS_DATA_COLUMNS)
         print("\n## Generating ensemble-data for @@: " + ensDataFile + " @@")
         dataset.to_csv(ensDataFile, index=False)
@@ -836,7 +958,7 @@ class PPITrainTestCls(object):
     @classmethod    
     def genPredPlotFromMemory(cls, dataFile, flat_y_true, flat_y_pred, testingLabel):
         testDataset = pd.read_csv(dataFile)
-        aavec = testDataset.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(np.str)
+        aavec = testDataset.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
         protIds = testDataset.loc[:, DatasetParams.PROT_ID_NAME].values
         protLens = testDataset.loc[:, DatasetParams.REAL_LEN_COL_NAME].values
         numProts = len(aavec)
@@ -849,14 +971,19 @@ class PPITrainTestCls(object):
         y_preds = []
         protSeqs = []
         for proti in range(0, numProts):
+            protLen = protLens[proti]
+            # If we have removed proteins longer than max-len then we have to remove them here as well.
+            maxProtLen = cls.getMaxProtLen()
+            if DatasetParams.SKIP_SLICING == True and protLen > maxProtLen:
+                continue
             protAA = aavec[proti].split(',')
             protSeqs.append(protAA)
-            protLen = protLens[proti]
             y_trues.append(flat_y_true[starti:starti+protLen])
             y_preds.append(flat_y_pred[starti:starti+protLen])
             starti = starti + protLen
         
-        predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+        #predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+        predFile = TrainingParams.MODEL_PRED_FILE.format(testingLabel)
         figFile = PPIPredPlotCls.plotProtPreds(predFile, protIds, protSeqs, y_trues, y_preds, testingLabel, TrainingParams.ALGRITHM_NAME)
         return figFile
     
@@ -888,7 +1015,8 @@ class PPITrainTestCls(object):
             logger.info('=======y_stacked_preds: ' + str(y_stacked_preds.shape))
             y_trues = ensResult[1]   # this is the same for all models, including ensnet.
             testingLabel = DatasetParams.EXPR_TESTING_LABELS[i]
-            predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+            #predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+            predFile = TrainingParams.MODEL_PRED_FILE.format(testingLabel)
             figFile = PPIPredPlotCls.plotStackedProtPreds(predFile, y_trues, y_stacked_preds, modelsNames, testingLabel)
             
             if DatasetParams.COMET_EXPERIMENT is not None:
@@ -978,7 +1106,7 @@ class PPITrainTestCls(object):
         
         if TrainingParams.USE_ENSEMBLE_TRAINING or TrainingParams.USE_ENSEMBLE_TESTING:
             return y_true, y_pred
-            
+        
         flat_y_true, flat_y_pred = PPILossCls.logTestingMetrics(y_true, y_pred, testingLabel)
         cls.plotMetrics(testingFile, flat_y_true, flat_y_pred, testingLabel)    
         
@@ -986,6 +1114,7 @@ class PPITrainTestCls(object):
     
     @classmethod
     def testModelForEnsembl(cls, testDatasetIndex):
+        print("%%%%%%% loading the saved ensemble model: ", TrainingParams.MODEL_SAVE_FILE)
         model = load_model(TrainingParams.MODEL_SAVE_FILE, compile=False, custom_objects=TrainingParams.CUSTOM_OBJECTS)
         
         if TrainingParams.USE_ENSEMBLE_TRAINING: #use validation dataset of the training dataset if we perform ensemble testing
@@ -997,6 +1126,7 @@ class PPITrainTestCls(object):
     
     @classmethod
     def testModel(cls, testDatasets=None):
+        print("%%%%%%% loading the saved model: ", TrainingParams.MODEL_SAVE_FILE)
         if TrainingParams.ENS_DIRICHLET_MODEL or TrainingParams.ENS_RF_MODEL or TrainingParams.ENS_XGBOOST_MODEL:
             model = joblib.load(TrainingParams.MODEL_SAVE_FILE)
         else:
@@ -1173,7 +1303,7 @@ class PPITrainTestCls(object):
     
     @classmethod
     def trainKerasModel(cls, model, trainDataset):
-        logger.info("## tf-version: " + tf.__version__ + "|| keras-version: " + tf.keras.__version__ + "|| float_type: " + K.floatx())
+        logger.info("## tf-version: " + tf.__version__ + "|| float_type: " + K.floatx())
         cls.printModel(model)
         
         if trainDataset is None:

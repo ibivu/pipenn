@@ -1,8 +1,11 @@
-import numpy as np
+import sys
+import os
 
-from tensorflow.python.keras.layers import ReLU, LeakyReLU, PReLU, ELU
-from tensorflow.python.keras.initializers import GlorotUniform, GlorotNormal, he_uniform, he_normal, lecun_uniform, lecun_normal, \
+import numpy as np
+from tensorflow.keras.layers import ReLU, LeakyReLU, PReLU, ELU
+from tensorflow.keras.initializers import GlorotUniform, GlorotNormal, he_uniform, he_normal, lecun_uniform, lecun_normal, \
                                                  Orthogonal, TruncatedNormal, VarianceScaling
+
 from PPILogger import PPILoggerCls
 from PPIDataset import PPIDatasetCls, DatasetParams
 from PPILoss import PPILossCls, LossParams
@@ -11,6 +14,28 @@ from PPIExplanation import PPIExplanationCls
 
 class PPIParamsCls(object):
     EX_COLUMNS = [
+                    'DYNA_q', 
+                    'RSA_q', 
+                    'ASA_q', 
+                    'PA_q', 
+                    'PB_q', 
+                    'PC_q', 
+                    'length',
+                    #'AliSeq',
+                    'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V', 
+                   ]
+    
+    EX_COLUMNS3 = [#old-dataset
+                    #'DYNA_q', 
+                    'RSA_q', 
+                    'ASA_q', 
+                    'PA_q', 
+                    'PB_q', 
+                    'PC_q', 
+                    'length',
+                    #'AliSeq',
+                 ]
+    EX_COLUMNS2 = [
                 #'normalized_length',
                 #'domain',
                 ]
@@ -18,19 +43,45 @@ class PPIParamsCls(object):
                 #'glob_stat_score',
                 ]
     
-    #datasetLabel = 'Epitope'
-    #dataset = DatasetParams.FEATURE_COLUMNS_EPI_NOWIN
-    #dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_NOWIN
-    #dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_WIN
-    #dataset = DatasetParams.FEATURE_COLUMNS_EPI_WIN
-    datasetLabel = 'Biolip_N'
+    datasetLabel = 'Epitope'
+    dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_NOWIN
+    #datasetLabel = 'Biolip_N'
     #dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_NOWIN
-    dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
-    #datasetLabel = 'Homo_Hetro'
-    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_NOWIN
-    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_NOWIN
-    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_WIN
-    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_WIN
+    
+    @classmethod
+    # Use the following as part of "Run configuration" in Eclipse for testing web-service which requires input. 
+    # Program arguments: ../../ n
+    # Working directory: ${workspace_loc:nn-ppi/test/wstest}
+    def setPipennParams(cls):
+        pipennDatasetLabel = None
+        pipennHome = os.getenv('PIPENN_HOME')
+        if pipennHome is not None:
+            DatasetParams.PIPENN_HOME = pipennHome
+        
+        nargs = len(sys.argv)
+        if nargs == 3:
+            # pipenn has been started with $PIPENN_HOME and $PRED_TYPE (P,N,S,A), the webservice version.
+            pipennHome = sys.argv[1]
+            predType = sys.argv[2]
+            choices = {'p': 'UserDS_P', 'n': 'UserDS_N', 's':'UserDS_S', 'a':'UserDS_A'}
+            pipennDatasetLabel = choices.get(predType)
+            DatasetParams.USE_USERDS_EVAL = True
+            DatasetParams.USERDS_INPUT_DIR = './'
+            DatasetParams.USERDS_OUTPUT_DIR = './{}/'
+            DatasetParams.PREPARED_USERDS_FILE = DatasetParams.USERDS_INPUT_DIR + DatasetParams.PREPARED_USERDS_FILE_NAME
+            DatasetParams.PIPENN_HOME = pipennHome
+            #print("%%%%%%%%% datasetLabel: ", pipennDatasetLabel, " | PIPENN_HOME: ", DatasetParams.PIPENN_HOME)
+            print("%%%%%%%%% datasetLabel: ", pipennDatasetLabel)
+        elif nargs == 2:
+            # pipenn has been started with only $PIPENN_HOME, the test version for students.
+            pipennHome = sys.argv[1]
+            DatasetParams.USE_PIPENN_TEST = True
+            DatasetParams.PIPENN_HOME = pipennHome
+            DatasetParams.ROOT_DIR = './data/'
+            DatasetParams.setPreparedFiles()
+
+        print("%%%%%%%%% PIPENN_HOME: ", DatasetParams.PIPENN_HOME)    
+        return pipennDatasetLabel
     
     @classmethod
     def setInitParams(cls, algorithmName, dsParam=dataset, dsExParam=EX_COLUMNS, dsInParam=IN_COLUMNS, dsLabelParam=datasetLabel):
@@ -42,6 +93,7 @@ class PPIParamsCls(object):
         DatasetParams.setExprDatasetFiles(dsLabelParam)
         
         TrainingParams.setOutputFileNames(algorithmName)
+        TrainingParams.OPT_FUN = TrainingParams.ADAM_OPT
         TrainingParams.KERNAL_INITIALIZER = he_uniform
         TrainingParams.ACTIVATION_FUN = PReLU
         TrainingParams.USE_BIAS = False
@@ -70,7 +122,7 @@ class PPIParamsCls(object):
     def setLoggers(cls, algorithmName, dsLabelParam):
         # !! note: setLogger MUST be called before setInitParams.
         # algorithmName is 'ensnet-ppi' if it is called from ensemble testing; otherwise it is the same as above (e.g. 'rnn-ppi')
-        logger = PPILoggerCls.initLogger(algorithmName)
+        logger = PPILoggerCls.initLogger(algorithmName, DatasetParams.PIPENN_HOME)
         TrainingParams.ALGRITHM_NAME = algorithmName
         
         if DatasetParams.USE_COMET:

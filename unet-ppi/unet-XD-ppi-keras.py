@@ -20,12 +20,30 @@ from PPIParams import PPIParamsCls
 
 class AlgParams:
     ALGRITHM_NAME = "unet-ppi"
-    DatasetParams.USE_COMET = False #True
-    
-    datasetLabel = 'Biolip_N'
+    '''
+    # For web-service use the following:
+    DatasetParams.USE_COMET = False
+    ONLY_TEST = True
+    datasetLabel = 'UserDS_A'
     dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
+    '''
+    DatasetParams.USE_COMET = False
+    ONLY_TEST = False
+    DatasetParams.ONE_HOT_ENCODING = False
     
-    ONLY_TEST = True #False
+    datasetLabel = 'Epitope'
+    dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_NOWIN
+    
+    #datasetLabel = 'HH_Combined'
+    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_WIN
+    #datasetLabel = 'Cross_HH_BL_P'
+    #dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
+    #datasetLabel = 'Cross_BL_P_HH'
+    #datasetLabel = 'Cross_BL_A_HH'
+    #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_WIN
+    #datasetLabel = 'Biolip_P'
+    #dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
+    
     USE_2D_MODEL = False
     NUM_BLOCK_REPEATS = 8 #8(73.44%,61.57%) #19(72.24%,61.54%)
     
@@ -58,6 +76,11 @@ class AlgParams:
       
     @classmethod
     def initAlgParams(cls, dsParam=dataset, dsLabelParam=datasetLabel, ensembleTesting=False):
+        pipennDatasetLabel = PPIParamsCls.setPipennParams()
+        if pipennDatasetLabel != None:
+            dsLabelParam = pipennDatasetLabel
+            cls.datasetLabel = pipennDatasetLabel
+        
         if ensembleTesting:
             cls.ONLY_TEST = True
         else:
@@ -229,6 +252,7 @@ def performTraining():
     return
 
 def performTesting():
+    TrainingParams.SAVE_PRED_FILE = True
     TrainingParams.GEN_METRICS_PER_PROT = True
     tstResults = PPITrainTestCls().testModel()
     return tstResults

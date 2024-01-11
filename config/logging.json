@@ -19,7 +19,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/ensnet-ppi.log",
+            "filename": "ensnet-ppi.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -28,7 +28,16 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/ann-ppi.log",
+            "filename": "ann-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "cnn_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "cnn-ppi.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -37,7 +46,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/unet-ppi.log",
+            "filename": "unet-ppi.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -46,7 +55,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/dnet-ppi.log",
+            "filename": "dnet-ppi.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -55,7 +64,43 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/rnet-ppi.log",
+            "filename": "rnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "rxnet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "rxnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "irnet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "irnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+         "xcnet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "xcnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "yolo_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "yolo-ppi.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -64,7 +109,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/cnn-rnn-ppi.log",
+            "filename": "cnn-rnn-ppi.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -73,7 +118,25 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/rnn-ppi.log",
+            "filename": "rnn-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+        "mc_resnet_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "mc-resnet-ppi.log",
+            "maxBytes": 10485760,
+            "backupCount": 5,
+            "encoding": "utf8"
+        },
+         "att_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "filename": "att-ppi.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -82,7 +145,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/DRNApred.log",
+            "filename": "DRNApred.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -91,7 +154,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",
             "formatter": "simple",
-            "filename": "../logs/SCRIBER.log",
+            "filename": "SCRIBER.log",
             "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf8"
@@ -109,6 +172,11 @@
             "handlers": ["ann_file_handler"],
             "propagate": "no"
         },
+        "cnn-ppi": {
+            "level": "INFO",
+            "handlers": ["cnn_file_handler"],
+            "propagate": "no"
+        },
         "unet-ppi": {
             "level": "INFO",
             "handlers": ["unet_file_handler"],
@@ -124,6 +192,26 @@
             "handlers": ["rnet_file_handler"],
             "propagate": "no"
         },
+        "rxnet-ppi": {
+            "level": "INFO",
+            "handlers": ["rxnet_file_handler"],
+            "propagate": "no"
+        },
+        "irnet-ppi": {
+            "level": "INFO",
+            "handlers": ["irnet_file_handler"],
+            "propagate": "no"
+        },
+        "xcnet-ppi": {
+            "level": "INFO",
+            "handlers": ["xcnet_file_handler"],
+            "propagate": "no"
+        },
+        "yolo-ppi": {
+            "level": "INFO",
+            "handlers": ["yolo_file_handler"],
+            "propagate": "no"
+        },
         "cnn-rnn-ppi": {
             "level": "INFO",
             "handlers": ["cnn_rnn_file_handler"],
@@ -132,6 +220,16 @@
         "rnn-ppi": {
             "level": "INFO",
             "handlers": ["rnn_file_handler"],
+            "propagate": "no"
+        },
+        "mc-resnet-ppi": {
+            "level": "INFO",
+            "handlers": ["mc_resnet_file_handler"],
+            "propagate": "no"
+        },
+        "att-ppi": {
+            "level": "INFO",
+            "handlers": ["att_file_handler"],
             "propagate": "no"
         },
         "DRNApred": {
