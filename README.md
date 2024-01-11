@@ -2,10 +2,19 @@
 
 This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in our paper: 
 
+<<<<<<< HEAD
     Bas Stringer*, Hans de Ferrante, Sanne Abeln, Jaap Heringa, K. Anton Feenstra and Reza Haydarlou* (2021).
     PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Nets. In preparation. 
 
 You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
+=======
+Bas Stringer*, Hans de Ferrante, Sanne Abeln, Jaap Heringa, K. Anton Feenstra and Reza Haydarlou* (2022).
+PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Nets. [Bioinformatics](https://doi.org/10.1093/bioinformatics/btac071)
+
+You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
+
+You may also be interested to use the [PIPENN webserver at www.ibi.vu.nl/programs/pipennwww/](https://www.ibi.vu.nl/programs/pipennwww/) which allows you to try out your queries of interest. Typical runtimes per protein are on the order of 10 minutes.
+>>>>>>> refs/remotes/origin/main
 
 ### What is PIPENN? ###
 
@@ -90,7 +99,11 @@ We provide seven DL methods. All DL methods can be trained (re-trained) in a sim
 ### How can I apply a pre-trained model on an existing testing data set? ###
 
 We already provide our pre-trained DL models for the case if you don't want to train the DL methods but only want to apply them on a testing data set. The testing process is similar for all seven DL models, including our *ensemble* model. Here, as an example, we explain steps to be followed for testing our pre-trained model *Dilated Convolutional Network (dnet)*, trained on *prepared_biolip_win_n_training.csv*:
+<<<<<<< HEAD
 1. Go to https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/PretrainedModels/BioDL-N-Models.	
+=======
+1. Go to https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/Pretrained-Models/BioDL-N-Models.	
+>>>>>>> refs/remotes/origin/main
 1. Download *dnet-ppi-model.hdf5* and copy it in the proper sub-folder *my-path/pipenn/models/dnet-ppi*.
 1. Open *my-path/pipenn/dnet-ppi/dnet-XD-ppi-keras.py* and be sure that the following parameters have been set properly:
 	* *datasetLabel = 'Biolip_N'* 

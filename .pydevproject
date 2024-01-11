@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <?eclipse-pydev version="1.0"?><pydev_project>
-<pydev_property name="org.python.pydev.PYTHON_PROJECT_INTERPRETER">Default</pydev_property>
-<pydev_property name="org.python.pydev.PYTHON_PROJECT_VERSION">python interpreter</pydev_property>
+    
+    <pydev_property name="org.python.pydev.PYTHON_PROJECT_INTERPRETER">Default</pydev_property>
+    
+    <pydev_property name="org.python.pydev.PYTHON_PROJECT_VERSION">python interpreter</pydev_property>
+    
+    <pydev_pathproperty name="org.python.pydev.PROJECT_SOURCE_PATH">
+        <path>/${PROJECT_DIR_NAME}/ann-ppi</path>
+        <path>/${PROJECT_DIR_NAME}/cnn-rnn-ppi</path>
+        <path>/${PROJECT_DIR_NAME}/config</path>
+        <path>/${PROJECT_DIR_NAME}/dnet-ppi</path>
+        <path>/${PROJECT_DIR_NAME}/ensnet-ppi</path>
+        <path>/${PROJECT_DIR_NAME}/rnet-ppi</path>
+        <path>/${PROJECT_DIR_NAME}/rnn-ppi</path>
+        <path>/${PROJECT_DIR_NAME}/unet-ppi</path>
+        <path>/${PROJECT_DIR_NAME}/utils</path>
+    </pydev_pathproperty>
 </pydev_project>
