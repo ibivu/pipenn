@@ -1,8 +1,11 @@
 #!/bin/bash
 
-# folder info
+PIPENN_HOME=/scistor/informatica/rhu300/pipennemb
+JOB_DIR=$PIPENN_HOME/jobs
+
 ALG_DIR=dnet-ppi
 ALG_FILE=dnet-XD-ppi-keras.py
-JOB_DURATION=12:29:00
+PRED_TYPE=$1
 
-source ../common-lisa-job.sh $ALG_DIR $ALG_FILE $JOB_DURATION
+source $JOB_DIR/common-lisa-job.sh $ALG_DIR $ALG_FILE $PRED_TYPE
+

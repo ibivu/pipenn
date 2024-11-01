@@ -51,7 +51,7 @@ def doesTFUseGPU():
         print("###### Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
         return True
     else:
-        print("$$$$$$ Please install GPU version of TF")
+        print("$$$$$$ Info: No GPU version of TF is used.")
     return False 
 
 def limitgpu(maxmem):
@@ -215,6 +215,7 @@ class TrainingParams(object):
     
     @classmethod
     def setOutputFileNames(cls, algorithmName):
+        print("## USE_USERDS_EVAL: ", DatasetParams.USE_USERDS_EVAL)
         cls.resetOutputFileNames()
         if DatasetParams.USE_USERDS_EVAL:
             modelDir = cls.getUserDSModelFile()
@@ -223,6 +224,7 @@ class TrainingParams(object):
             modelDir = cls.MODEL_DIR.format(algorithmName)
             outputDir = cls.MODEL_OUTPUT_DIR.format(algorithmName)
         
+        print("## PIPENN model-dir: ", modelDir, " and output-dir: ", outputDir)
         # used for both training and testing
         cls.MODEL_SAVE_FILE = modelDir + cls.MODEL_SAVE_FILE.format(algorithmName)
         
@@ -1114,7 +1116,6 @@ class PPITrainTestCls(object):
     
     @classmethod
     def testModelForEnsembl(cls, testDatasetIndex):
-        print("%%%%%%% loading the saved ensemble model: ", TrainingParams.MODEL_SAVE_FILE)
         model = load_model(TrainingParams.MODEL_SAVE_FILE, compile=False, custom_objects=TrainingParams.CUSTOM_OBJECTS)
         
         if TrainingParams.USE_ENSEMBLE_TRAINING: #use validation dataset of the training dataset if we perform ensemble testing
@@ -1303,6 +1304,7 @@ class PPITrainTestCls(object):
     
     @classmethod
     def trainKerasModel(cls, model, trainDataset):
+        #logger.info("## tf-version: " + tf.__version__ + "|| keras-version: " + tf.keras.__version__ + "|| float_type: " + K.floatx())
         logger.info("## tf-version: " + tf.__version__ + "|| float_type: " + K.floatx())
         cls.printModel(model)
         

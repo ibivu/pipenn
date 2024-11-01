@@ -2049,6 +2049,7 @@ class DatasetPreparation(object):
             return embDict
         
         print("\n## Generating Protbert file for @@: ", dataFile, " @@")
+        print("## PROT_BERT_MODEL_DIR: ", DatasetParams.PROT_BERT_MODEL_DIR, " | PROT_BERT_EMBEDDING_DIR", DatasetParams.PROT_BERT_EMBEDDING_DIR)
         embDict = dict()
         modelDir = Path(DatasetParams.PROT_BERT_MODEL_DIR)
         tokenizer = T5Tokenizer.from_pretrained(modelDir, do_lower_case=False )
