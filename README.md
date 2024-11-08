@@ -120,7 +120,7 @@ We already provide our pre-trained DL models for the case if you don't want to t
 
 ### How can I create embedding files for my training and testing files when using PIPENN-EMB models? ###
 
-PIPENN-EMB utilizes *protbert (specifically) ProtT5-XL* from the paper [ProtTrans: Toward Understanding the Language of Life Through Self-Supervised Learning](https://www.computer.org/csdl/journal/tp/2022/10/09477085/1v2M3TwoN4A)(Elnaggar, A. et al.) to generate embedding files for training and testing files. We have already generated embedding files (*.npz) for all training and testing files of PIPENN. As they are very large files, we will provide them at request.    
+PIPENN-EMB utilizes *protbert (specifically) ProtT5-XL* from the paper [ProtTrans: Toward Understanding the Language of Life Through Self-Supervised Learning](https://www.computer.org/csdl/journal/tp/2022/10/09477085/1v2M3TwoN4A)(Elnaggar, A. et al.) to generate embedding files for training and testing files. We have already generated embedding files (*.npz) for all training and testing files of PIPENN. You might download them from [BioDL-Datasets](https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/BioDL-Datasets).  
 
 If you want to generate embedding files for your own data sets, please follow these steps:
 1. Be sure that you download the *protbert* models (see instructions for downloading and using *protbert* on the github page of [ProtTrans](https://github.com/agemagician/ProtTrans)).
