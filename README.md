@@ -1,13 +1,18 @@
 # README #
 
-This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN described in our paper: 
+This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN. We provide two versions of PIPENN: PIPENN-1 and PIPENN-EMB. The code-base in this repository is the common code for both PIPENN versions.  
+
+PIPENN-1 (the original PIPENN), described in our published paper: 
 
 Bas Stringer*, Hans de Ferrante, Sanne Abeln, Jaap Heringa, K. Anton Feenstra and Reza Haydarlou* (2022).
-PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Nets. [Bioinformatics](https://doi.org/10.1093/bioinformatics/btac071)
+PIPENN: Protein Interface Prediction from sequence with an Ensemble of Neural Nets ([Bioinformatics](https://doi.org/10.1093/bioinformatics/btac071)).
 
-You can also use these steps to run PIPENN for the interface prediction of your own protein sequences.
+and PIPENN-EMB (the new enhanced version), described in our paper submitted to Nature Scientific Reports:
+ 
+David P. G. Thomas, Carlos M. Garcia Fernandez, Reza Haydarlou, and K. Anton Feenstra (2024)
+PIPENN-EMB: ensemble net and protein embeddings generalise protein interface prediction beyond homology ([bioRxiv](https://www.biorxiv.org/content/10.1101/2024.10.31.621117v1)).
 
-You may also be interested to use the [PIPENN webserver at www.ibi.vu.nl/programs/pipennwww/](https://www.ibi.vu.nl/programs/pipennwww/) which allows you to try out your queries of interest. Typical runtimes per protein are on the order of 10 minutes.
+You can use the following steps to run both versions of PIPENN for the interface prediction of your own protein sequences. You may also be interested to use the webservers at [PIPENN-1](https://www.ibi.vu.nl/programs/pipennwww/) and [PIPENN-EMB](https://www.ibi.vu.nl/programs/pipennemb/), which allow you to try out your queries of interest. 
 
 
 ### What is PIPENN? ###
@@ -45,7 +50,7 @@ The following Python modules are used by all the different DL methods:
 1. *utils/PPIPredPlot*: generates performance figures and embed them in a standalone HTML page containing ROC-AUC and Precision-Recall curves, and the prediction probabilities.
 1. *utils/PPIExplanation*: uses SHAP library to explain the result of a model (feature importance).
 1. *utils/PPIParams*: contains all default parameters. These parameters can be overwritten in the Python module for a specific DL method.
-1. *utils/PPIlogger*: defines PIPENN logger that is used by all Python modules.
+1. *utils/PPIlogger*: defines PIPENN logger that is used by all Python modules. 
 
 The following folders are used by all the different DL methods:
 
@@ -56,7 +61,7 @@ The following folders are used by all the different DL methods:
 ### What do data set folders contain? ###
 
 Because the data set files are large, we have not included them in this github repository. They are available at the site of our group. Follow the following steps to download them and place in the appropriate folders:
-1. Please go to https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/BioDL-Datasets.
+1. Please go to [BioDL-Datasets](https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/BioDL-Datasets).
 1. There are four training data sets: 
 	* *prepared_biolip_win_a_training.csv*: contains all types of interaction data (protein-protein, protein-small-molecule, and protein-DNA/RNA).
 	* *prepared_biolip_win_p_training.csv*: contains only protein-protein interaction data.
@@ -81,8 +86,9 @@ We provide seven DL methods. All DL methods can be trained (re-trained) in a sim
 1. Open *my-path/pipenn/dnet-ppi/dnet-XD-ppi-keras.py* and be sure that the following parameters have been set properly:
 	* *datasetLabel = 'Biolip_N'* #if the training data set is *prepared_biolip_win_n_training.csv* (the other options are 'Biolip_A', 'Biolip_P', and 'Biolip_S' for other training data sets)
 	* *ONLY_TEST = False*
+	* *ONE_HOT_ENCODING = True* #for PIPENN-1 | *ONE_HOT_ENCODING = False* #for PIPENN-EMB
 1. Be sure that *prepared_biolip_win_n_training.csv*, *prepared_biolip_win_n_testing.csv*, and *prepared_ZK448_win_n_benchmark.csv* are in *my-path/pipenn/data* (note that we immediately apply the trained model on the testing data sets).
-1. Go to *my-path/pipenn/jobs/dnet-ppi* and run one of the shell scripts. There are two shell scripts: *dnet-lisa-job.sh* (for running on HPC using SLURM and GPU's) and *dnet-pcoms-job.sh* (for running on a usual linux using CPU's). If you prefer to run the methods on a Windows machine you can easily change these scripts to a *.bat* scripts.
+1. Go to *my-path/pipenn/jobs/dnet-ppi* and run one of the shell scripts. There are two shell scripts: *dnet-lisa-job.sh* (for running on HPC using SLURM and GPU's). 
 1. After running the script, you will get the following outputs:
 	* *my-path/pipenn/models/dnet-ppi/dnet-ppi-model.hdf5* (model file) 
 	* *my-path/pipenn/logs/dnet-ppi.log* (log file)
@@ -99,6 +105,7 @@ We already provide our pre-trained DL models for the case if you don't want to t
 1. Open *my-path/pipenn/dnet-ppi/dnet-XD-ppi-keras.py* and be sure that the following parameters have been set properly:
 	* *datasetLabel = 'Biolip_N'* 
 	* *ONLY_TEST = True*
+	* *ONE_HOT_ENCODING = True* #for PIPENN-1 | *ONE_HOT_ENCODING = False* #for PIPENN-EMB
 1. Be sure that the corresponding testing data sets *prepared_biolip_win_n_testing.csv* and *prepared_ZK448_win_n_benchmark.csv* are already in *my-path/pipenn/data*.
 1. Repeat the steps 4 to 6, from the previous section.
 
@@ -107,12 +114,25 @@ We already provide our pre-trained DL models for the case if you don't want to t
 1. Your training and testing data sets must have the same layout (features and formats) as the existing data sets.
 1. Copy your own training and testing data sets to *my-path/pipenn/data*.
 1. Rename your training and testing files to one of the existing data files.
-1. Set properly the two parameters: *datasetLabel* and *ONLY_TEST*.
+1. Set properly the two parameters: *datasetLabel*, *ONLY_TEST* and *ONE_HOT_ENCODING*.
 1. Follow the steps explained before.    
+
+
+### How can I create embedding files for my training and testing files when using PIPENN-EMB models? ###
+
+PIPENN-EMB utilizes *protbert (specifically) ProtT5-XL* from the paper [ProtTrans: Toward Understanding the Language of Life Through Self-Supervised Learning](https://www.computer.org/csdl/journal/tp/2022/10/09477085/1v2M3TwoN4A)(Elnaggar, A. et al.) to generate embedding files for training and testing files. We have already generated embedding files (*.npz) for all training and testing files of PIPENN. You might download them from [BioDL-Datasets](https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/BioDL-Datasets).  
+
+If you want to generate embedding files for your own data sets, please follow these steps:
+1. Be sure that you download the *protbert* models (see instructions for downloading and using *protbert* on the github page of [ProtTrans](https://github.com/agemagician/ProtTrans).
+1. Create a folder called *protbert* in *my-path/pipenn: *my-path/pipenn/protbert*.
+1. Copy the downloaded *protbert* models in *my-path/pipenn/protbert*.
+1. Create a temporary folder called *my-test* in *my-path/pipenn*: *my-path/pipenn/my-test*.
+1. Put your fasta file in *my-path/pipenn/my-test*.
+1. Run *my-path/pipenn/jobs/utils/fgt-lisa-job.sh* to generate a *.csv file from a fasta file and also to generate protbert embeddings for each protein in the fasta file. 
 
 ### Do you also provide a webserver? ###
 
-Not yet. We are working on it.
+Yes. We provide webservers for both [PIPENN-1](https://www.ibi.vu.nl/programs/pipennwww/) and [PIPENN-EMB](https://www.ibi.vu.nl/programs/pipennemb/).
 
 ### Who can I talk to? ###
 
