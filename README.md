@@ -100,7 +100,7 @@ We provide seven DL methods. All DL methods can be trained (re-trained) in a sim
 
 We already provide our pre-trained DL models for the case if you don't want to train the DL methods but only want to apply them on a testing data set. The testing process is similar for all seven DL models, including our *ensemble* model. Here, as an example, we explain steps to be followed for testing our pre-trained model *Dilated Convolutional Network (dnet)*, trained on *prepared_biolip_win_n_training.csv*:
 
-1. Go to [BioDL-N-Models](https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/Pretrained-Models/BioDL-N-Models)).	
+1. Go to ([BioDL-N-Models](https://www.ibi.vu.nl/downloads/PIPENN/PIPENN/Pretrained-Models/BioDL-N-Models)).	
 1. Download *dnet-ppi-model.hdf5* and copy it in the proper sub-folder *my-path/pipenn/models/dnet-ppi*.
 1. Open *my-path/pipenn/dnet-ppi/dnet-XD-ppi-keras.py* and be sure that the following parameters have been set properly:
 	* *datasetLabel = 'Biolip_N'* 
