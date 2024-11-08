@@ -28,9 +28,9 @@ class AlgParams:
     # For web-service use the following:
     DatasetParams.USE_COMET = False
     ONLY_TEST = True
+    # Put this on True for PIPENN-1; it must be put on False for PIPENNEMB 
     DatasetParams.ONE_HOT_ENCODING = False
-    #datasetLabel = 'UserDS_A'
-    #dataset = DatasetParams.FEATURE_COLUMNS_BIOLIP_WIN
+
     datasetLabel = 'UserDS_P'
     dataset = DatasetParams.MIN_FEATURE_COLUMNS
     #'''

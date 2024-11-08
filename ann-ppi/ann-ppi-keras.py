@@ -31,6 +31,7 @@ class AlgParams:
     '''
     DatasetParams.USE_COMET = True
     ONLY_TEST = False
+    # Put this on True for PIPENN-1; it must be put on False for PIPENNEMB
     DatasetParams.ONE_HOT_ENCODING = False
     
     datasetLabel = 'Epitope'
