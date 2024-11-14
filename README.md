@@ -1,5 +1,7 @@
 # README #
+<p align="right">
 The interactions between proteins and other molecules are essential to many biological and cellular processes. Experimental identification of interface residues is a time-consuming, costly and challenging task, while protein sequence data are ubiquitous. Consequently, many computational and machine learning approaches have been developed over the years to predict such interface residues from sequence. However, the effectiveness of different Deep Learning (DL) architectures and learning strategies for protein–protein, protein–nucleotide and protein–small molecule interface prediction has not yet been fully investigated in great detail. Therefore, we explore the prediction of protein interface residues using six DL architectures and various learning strategies with sequence-derived input features. We also include an ensemble architecture, which combines the outputs of these six neural nets into one. All models, collectively referred to as PIPENN, are trained on five different training sets.
+
 
 This README provides steps that are necessary to train and test the Deep Learning (DL) methods of PIPENN. We provide two versions of PIPENN: PIPENN-1 and PIPENN-EMB. The code-base in this repository is the common code for both PIPENN versions.  
 
@@ -138,3 +140,4 @@ Yes. We provide webservers for both [PIPENN-1](https://www.ibi.vu.nl/programs/pi
 ### Who can I talk to? ###
 
 * Reza Haydarlou (e-mail in the paper)
+</p>
