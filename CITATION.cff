@@ -1,0 +1,61 @@
+cff-version: 1.2.0
+title: PIPENN
+type: software
+repository: https://github.com/ibivu/pipenn/
+identifiers:
+- type: other
+  value: pipenn
+  description: bio.tools
+license: GPL-3.0
+keywords:
+- term: Protein interactions
+  uri: http://edamontology.org/topic_0128
+- term: Machine learning
+  uri: http://edamontology.org/topic_3474
+- term: RNA
+  uri: http://edamontology.org/topic_0099
+- term: Small molecules
+  uri: http://edamontology.org/topic_0154
+- term: Gene expression
+  uri: http://edamontology.org/topic_0203
+abstract: PIPENN stands for 'Protein Interface Prediction from sequence with an Ensemble
+  of Neural Nets'. PIPENN is a suite of DL methods for predicting protein bindings
+  of different interaction types (protein-protein, protein-small-molecule, protein-nucleotide(DNA/RNA))
+  at residue-level, using only information from a protein sequence as input.
+message: If you use this software, please cite it and the Primary publications below.
+references:
+- doi: 10.1101/2021.09.03.458832
+  title: 'PIPENN: Protein Interface Prediction with an Ensemble of Neural Nets'
+  authors:
+  - first_name: Bas
+    last_name: Stringer
+  - first_name: Hans
+    last_name: de Ferrante
+  - first_name: Sanne
+    last_name: Abeln
+  - first_name: Jaap
+    last_name: Heringa
+  - first_name: Anton
+    last_name: Feenstra
+  - first_name: Reza
+    last_name: Haydarlou
+  year: 2021
+  pub_type: article
+preferred-citation:
+  doi: 10.1101/2021.09.03.458832
+  title: 'PIPENN: Protein Interface Prediction with an Ensemble of Neural Nets'
+  authors:
+  - first_name: Bas
+    last_name: Stringer
+  - first_name: Hans
+    last_name: de Ferrante
+  - first_name: Sanne
+    last_name: Abeln
+  - first_name: Jaap
+    last_name: Heringa
+  - first_name: Anton
+    last_name: Feenstra
+  - first_name: Reza
+    last_name: Haydarlou
+  year: 2021
+  pub_type: article
