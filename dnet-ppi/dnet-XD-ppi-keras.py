@@ -20,29 +20,39 @@ from PPITrainTest import PPITrainTestCls, TrainingParams, MyPReLU
 from PPIParams import PPIParamsCls
 from PPIParams import PPIParamsCls
 from PPIExplanation import PPIExplanationCls, ExplanationParams
-#from tensorflow_core.python.keras.initializers import glorot_normal
+from PosEncoding import SinusoidalPositionalEncoding, LearnablePositionalEmbedding, RotaryPositionalEmbedding1D
 
 class AlgParams:
     ALGRITHM_NAME = "dnet-ppi"
-    #'''
+    '''
     # For web-service use the following:
     DatasetParams.USE_COMET = False
     ONLY_TEST = True
-    # Put this on True for PIPENN-1; it must be put on False for PIPENNEMB 
     DatasetParams.ONE_HOT_ENCODING = False
-
     datasetLabel = 'UserDS_P'
     dataset = DatasetParams.MIN_FEATURE_COLUMNS
+    '''
+
     #'''
-
-    '''
     DatasetParams.USE_COMET = False
-    ONLY_TEST = False
+    ONLY_TEST = True 
     DatasetParams.ONE_HOT_ENCODING = False
-    datasetLabel = 'Epitope'
-    dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_NOWIN
-    '''
-
+    datasetLabel = "PiSite"
+    #datasetLabel = "SeqInSite"
+    #datasetLabel = "Biolip_E"
+    #datasetLabel = "Biolip_N"
+    #datasetLabel = "Biolip_S"
+    dataset = DatasetParams.MIN_FEATURE_COLUMNS
+    #'''
+    EX_COLUMNS = [] #['normalized_length',]
+    IN_COLUMNS = []
+    
+    #datasetLabel = "Biolip_P"
+    #dataset = DatasetParams.MIN_FEATURE_COLUMNS
+    #datasetLabel = "PiSite"
+    #dataset = DatasetParams.MIN_FEATURE_COLUMNS
+    #datasetLabel = 'Epitope'
+    #dataset = DatasetParams.FEATURE_COLUMNS_EPI_SEMI_NOWIN
     #datasetLabel = 'HH_Combined'
     #datasetLabel = 'Homo_Hetro'
     #dataset = DatasetParams.FEATURE_COLUMNS_ENH_SEMI_WIN
@@ -61,7 +71,7 @@ class AlgParams:
     USE_POOLING = False
     USE_BN = True
     USE_DROPOUT = True
-    #DatasetParams.FLOAT_TYPE = 'float32'
+    DatasetParams.FLOAT_TYPE = 'float64' #'float16' #'float64'
     #DatasetParams.USE_VAR_BATCH_INPUT = True
     
     INPUT_SHAPE = None  #must be determined in init.
@@ -123,8 +133,8 @@ class AlgParams:
         else:
             PPIParamsCls.setLoggers(cls.ALGRITHM_NAME, dsLabelParam)
         
-        #PPIParamsCls.setInitParams(cls.ALGRITHM_NAME,dsParam=dsParam, dsExParam=EX_COLUMNS,dsInParam=IN_COLUMNS,dsLabelParam=dsLabelParam)   
-        PPIParamsCls.setInitParams(cls.ALGRITHM_NAME,dsParam=dsParam, dsLabelParam=dsLabelParam)
+        PPIParamsCls.setInitParams(cls.ALGRITHM_NAME,dsParam=dsParam, dsExParam=cls.EX_COLUMNS,dsInParam=cls.IN_COLUMNS,dsLabelParam=dsLabelParam)
+        #PPIParamsCls.setInitParams(cls.ALGRITHM_NAME,dsParam=dsParam, dsLabelParam=dsLabelParam)
         cls.setShapes()
         return 
 
@@ -273,6 +283,10 @@ def make1DModel2():
 def make1DModel():
     protImg = Input(shape=AlgParams.INPUT_SHAPE)
     x = protImg
+    # Inject Positional Information
+    #x = SinusoidalPositionalEncoding(d_model=1024)(x)
+    #x = LearnablePositionalEmbedding(d_model=1024)(x)
+    #x = RotaryPositionalEmbedding1D(d_model=1024)(x)
 
     channelSize = 64 
     dilationRate = AlgParams.INIT_CNN_DILATION_SIZE
@@ -370,6 +384,20 @@ def make1DModel5():
     return model
 
 def performTraining():
+    #LossParams.MODEL_CHECK_POINT_MODE = LossParams.AP_CHECK
+    TrainingParams.USE_LAZY_TRAINING = True
+    DatasetParams.CHUNK_SIZE = 512 #64 #50
+    TrainingParams.BATCH_SIZE = 8 #64 #128 #8 #32 
+    TrainingParams.NUM_EPOCS = 500
+    TrainingParams.CACHE_PERCENT = 0.05 #0.10 #0.20
+    TrainingParams.EARLY_STOP_PATIENCE = 50 #60 #50 #200 #80
+    '''
+    #TrainingParams.VERBOSE_INDICATOR = 1 #2
+    DatasetParams.CHUNK_SIZE = 5 #50 
+    TrainingParams.USE_LAZY_TRAINING = True
+    TrainingParams.BATCH_SIZE = 2 #8
+    TrainingParams.NUM_EPOCS = 5
+    '''
     """
     5e-2; 0.75; 0.80 (seqvec)
     homo=MCC: 33.36% AUC: 76.16%
@@ -417,8 +445,18 @@ def performTraining():
     return
 
 def performTesting():
+    LossParams.DEFAULT_CUTOFF_VALUE = 0.50
+    #LossParams.CUTOFF_METHOD = LossParams.DEFAULT_CUTOFF
+    #LossParams.CUTOFF_METHOD = LossParams.SIMPLE_CUTOFF
+    #LossParams.CUTOFF_METHOD = LossParams.YOUDEN_CUTOFF
+    #LossParams.CUTOFF_METHOD = LossParams.OPTIMAL_CUTOFF
+    LossParams.CUTOFF_METHOD = LossParams.EQUAL_CUTOFF
+
     TrainingParams.SAVE_PRED_FILE = True
-    TrainingParams.GEN_METRICS_PER_PROT = True
+    #TrainingParams.GEN_METRICS_PER_PROT = True
+    #TrainingParams.CUSTOM_OBJECTS = {'SinusoidalPositionalEncoding': SinusoidalPositionalEncoding}  
+    #TrainingParams.CUSTOM_OBJECTS = {'LearnablePositionalEmbedding': LearnablePositionalEmbedding} 
+    #TrainingParams.CUSTOM_OBJECTS = {'RotaryPositionalEmbedding1D': RotaryPositionalEmbedding1D}                                    
     tstResults = PPITrainTestCls().testModel()
     return tstResults
 

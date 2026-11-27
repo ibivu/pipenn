@@ -70,7 +70,7 @@ def generateDFInput(prot_seqs, prot_lens, prot_ids):
             prot_id = prot_ids[i]
             prot_len = prot_lens[i]
             df_inp.loc[df_inp[id_col_name]==prot_id, DF_FEATURE_COLUMNS[2:4]] = prot_len
-        df_inp[DF_FEATURE_COLUMNS[4]] = 0
+        df_inp[DF_FEATURE_COLUMNS[4]] = "0" 
         #print(df_inp)
         return df_inp
     
@@ -92,6 +92,8 @@ def parseUseInput():
     for rec in SeqIO.parse(DatasetParams.USER_INPUT_FASTA_FILE, 'fasta'):
         prot_seqs.append(str(','.join(rec.seq)))
         prot_lens.append(len(rec.seq))
+        # We can get problem if the first part of the record (which is considered to the protein-id) is the same for multiple proteins.
+        # So, be sure that they are always unique in the input FASTA file. 
         prot_ids.append(rec.id)
     #print('num_prots: ', len (prot_lens), ' Protlens: ', prot_lens, ' ProtIds: ', prot_ids)
     return prot_seqs, prot_lens, prot_ids
@@ -108,12 +110,12 @@ if __name__ == "__main__":
     if nargs == 4:
         pipennHome = sys.argv[1]
         DatasetParams.PIPENN_HOME = pipennHome
-        DatasetParams.PROT_BERT_MODEL_DIR = DatasetParams.PIPENN_HOME + "/protbert"
+        DatasetParams.PROT_BERT_MODEL_DIR = DatasetParams.PIPENN_HOME + "/protbert" 
         DatasetParams.USER_INPUT_FASTA_FILE = sys.argv[2]
         DatasetParams.USERDS_INPUT_DIR = './'
         DatasetParams.PREPARED_USERDS_FILE = sys.argv[3]
         print("PIPENN_HOME:", DatasetParams.PIPENN_HOME,
-              "USER_INPUT_FASTA_FILE:", DatasetParams.USER_INPUT_FASTA_FILE,
+              "USER_INPUT_FASTA_FILE:", DatasetParams.USER_INPUT_FASTA_FILE, 
               " | PREPARED_USERDS_FILE: ", DatasetParams.PREPARED_USERDS_FILE)
     else:
         print("$$$$$$$$ No proper arguments passed - nargs: ", nargs)

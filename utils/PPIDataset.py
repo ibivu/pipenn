@@ -1,6 +1,6 @@
 from comet_ml import Experiment
 import os
-import sys
+import sys, time, datetime
 import math
 import itertools as it
 import functools
@@ -8,15 +8,20 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
+import dask
+import dask.bag as daskbag
+import dask.dataframe as ddf
+import dask.array as darr
 
-from tensorflow.keras import backend as K
-from tensorflow.keras import utils as U
-#import tensorflow as tf
+from keras import backend
+from keras import utils
+import tensorflow as tf
 
 import plotly.graph_objects as go
 import plotly
 from scipy import stats
 from sklearn.model_selection import train_test_split
+from numba.core.types import none
 
 # Don't use this; you get circular dependency problem.
 #from PPITrainTest import TrainingParams
@@ -24,7 +29,16 @@ from sklearn.model_selection import train_test_split
 logger = None
 
 class DatasetParams(object):
-    USE_COMET = True
+    ONE_HOT_EMBEDDING = 0
+    PROTBERT_EMBEDDING  = 1
+    ESM2_EMBEDDING  = 2
+    PROTVEC_EMBDDING = 3
+    SEQVEC_EMBEDDING = 4
+    EMBEDDING = PROTBERT_EMBEDDING   
+    EMBEDDING_NAMES = ['ONE_HOT_EMBEDDING', 'PROTBERT_EMBEDDING', 'ESM2_EMBEDDING', 'PROTVEC_EMBDDING', 'SEQVEC_EMBEDDING']
+    
+    CHUNK_SIZE = 50    
+    USE_COMET = False
     COMET_EXPERIMENT = None
     EXPR_DATASET_LABEL = None
     EXPR_TRAINING_FILE = None
@@ -79,7 +93,10 @@ class DatasetParams(object):
     ZK448_WIN_BENCHMARK_FILE = ROOT_DIR + "ZK448_win_benchmark.csv"    
     PREPARED_BIOLIP_WIN_P_TRAINING_FILE = ROOT_DIR + "prepared_biolip_win_p_training.csv"
     PREPARED_BIOLIP_WIN_S_TRAINING_FILE = ROOT_DIR + "prepared_biolip_win_s_training.csv"
+    PREPARED_BIOLIP_S_TRAINING_FILE = ROOT_DIR + "prepared_biolip_s_training.csv"
     PREPARED_BIOLIP_WIN_N_TRAINING_FILE = ROOT_DIR + "prepared_biolip_win_n_training.csv"
+    PREPARED_BIOLIP_N_TRAINING_FILE = ROOT_DIR + "prepared_biolip_n_training.csv"
+    PREPARED_BIOLIP_E_TRAINING_FILE = ROOT_DIR + "prepared_biolip_e_training.csv"
     PREPARED_BIOLIP_WIN_A_TRAINING_FILE = ROOT_DIR + "prepared_biolip_win_a_training.csv"
     PREPARED_BIOLIP_WIN_P_TESTING_FILE = ROOT_DIR + "prepared_biolip_win_p_testing.csv"
     PREPARED_BIOLIP_WIN_S_TESTING_FILE = ROOT_DIR + "prepared_biolip_win_s_testing.csv"
@@ -88,7 +105,28 @@ class DatasetParams(object):
     PREPARED_ZK448_WIN_P_BENCHMARK_FILE = ROOT_DIR + "prepared_ZK448_win_p_benchmark.csv"
     PREPARED_ZK448_WIN_S_BENCHMARK_FILE = ROOT_DIR + "prepared_ZK448_win_s_benchmark.csv"
     PREPARED_ZK448_WIN_N_BENCHMARK_FILE = ROOT_DIR + "prepared_ZK448_win_n_benchmark.csv"
+    NUCLEOTIDE_246_BENCHMARK_FILE = ROOT_DIR + "benchmark_nucleotide_246.csv"
+    DNA_129_BENCHMARK_FILE = ROOT_DIR + "benchmark_dna_129.csv"
+    RNA_117_BENCHMARK_FILE = ROOT_DIR + "benchmark_rna_117.csv"
+    SMALLMOL_BENCHMARK_FILE = ROOT_DIR + "benchmark_smallmolecule.csv"
+    CA_BENCHMARK_FILE = ROOT_DIR + "benchmark_CA.csv"
+    CD_BENCHMARK_FILE = ROOT_DIR + "benchmark_CD.csv"
+    CO_BENCHMARK_FILE = ROOT_DIR + "benchmark_CO.csv"  
+    CU_BENCHMARK_FILE = ROOT_DIR + "benchmark_CU.csv"
+    FE2_BENCHMARK_FILE = ROOT_DIR + "benchmark_FE2.csv"
+    FE_BENCHMARK_FILE = ROOT_DIR + "benchmark_FE.csv"
+    K_BENCHMARK_FILE = ROOT_DIR + "benchmark_K.csv"
+    MG_BENCHMARK_FILE = ROOT_DIR + "benchmark_MG.csv"
+    MN_BENCHMARK_FILE = ROOT_DIR + "benchmark_MN.csv"
+    NA_BENCHMARK_FILE = ROOT_DIR + "benchmark_NA.csv"
+    NI_BENCHMARK_FILE = ROOT_DIR + "benchmark_NI.csv"
+    ZN_BENCHMARK_FILE = ROOT_DIR + "benchmark_ZN.csv"
+    
+    PEPTIDE_125_BENCHMARK_FILE = ROOT_DIR + "benchmark_peptide_125.csv"
     PREPARED_ZK448_WIN_A_BENCHMARK_FILE = ROOT_DIR + "prepared_ZK448_win_a_benchmark.csv"
+    PREPARED_PISITE_TRAINING_FILE = ROOT_DIR + "prepared_pisite_training.csv"
+    PREPARED_PISITE_TESTING_FILE = ROOT_DIR + "prepared_pisite_testing.csv"
+    PREPARED_SEQINSITE_TRAINING_FILE = ROOT_DIR + "prepared_seqinsite_training.csv"
     
     #for testing models of the competitors
     PREPARED_ZK448_WIN_UA_BENCHMARK_FILE = ROOT_DIR + "prepared_ZK448_win_ua_benchmark.csv"
@@ -103,14 +141,17 @@ class DatasetParams(object):
     LEN_COL_NAME = 'length'
     POS_COL_NAME = 'pos'
     REAL_LEN_COL_NAME = 'Rlength'
-    PROT_ID_NAME = 'uniprot_id'
+    PROT_ID_NAME = 'uniprot_id' #'pdb_id'
         
     PROT_VEC_ENCODINGS_FILE = ROOT_DIR + "protvec_encodings.csv"
     UNKNOWN_TRIPLET = '<unk>'
     UNKNOWN_AA = 'X' 
     SEQ_VEC_MODEL_DIR = ROOT_DIR + "seqvec"
-    PROT_BERT_MODEL_DIR = ROOT_DIR + "protbert" #we use prot_t5_xl_uniref50.
+    PROT_BERT_MODEL_DIR = ROOT_DIR + "protbert" #we use prot_t5_xl_uniref50 (Prot5_XL).
+    PROT_BERT_TF_MODEL_DIR = PROT_BERT_MODEL_DIR + '/protbert_tf_format'
     PROT_BERT_EMBEDDING_DIR = './' 
+    ESM2_MODEL_DIR = ROOT_DIR + "esm2" #we use esm2_t36_3B_UR50D.
+    ESM2_EMBEDDING_DIR = './' 
     
     FEATURE_COLUMNS = None
     FEATURE_COLUMNS_ENH_NOWIN = [
@@ -612,6 +653,12 @@ class DatasetParams(object):
                     ]
     
     # Minimum columns required for embedding + length. 
+    EPI_MIN_FEATURE_COLUMNS = [
+                    'length',
+                    'AliSeq',
+                    ]
+    
+    # Minimum columns required for embedding + length. 
     MIN_FEATURE_COLUMNS = [
                     #'uniprot_id',    
                     'sequence',
@@ -648,6 +695,8 @@ class DatasetParams(object):
     SEQ_COLUMN_IND = None
     ONE_HOT_ENCODING = True
     AA_LIST =  ['A', 'C', 'E', 'D', 'G', 'F', 'I', 'H', 'K', 'M', 'L', 'N', 'Q', 'P', 'S', 'R', 'T', 'W', 'V', 'Y', 'X']
+    PROT_BERT_ENCODING_DIM = 1024
+    ESM2_ENCODING_DIM = 2560
     PROT_RESIDU_ENCODING_DIM = None
     FEATURES_SIZE_COMPENSATION = None
     PROT_IMAGE_C = None
@@ -719,9 +768,15 @@ class DatasetParams(object):
     def setPreparedFiles(cls):
         # If ROOT_DIR is different than the default (in case of testing new versions of pipenn by students) we have to set the file
         # names again.
+        cls.PREPARED_PISITE_TRAINING_FILE = cls.ROOT_DIR + "prepared_pisite_training.csv"
+        cls.PREPARED_PISITE_TESTING_FILE = cls.ROOT_DIR + "prepared_pisite_testing.csv"
+        cls.PREPARED_SEQINSITE_TRAINING_FILE = cls.ROOT_DIR + "prepared_seqinsite_training.csv"
         cls.PREPARED_BIOLIP_WIN_P_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_p_training.csv"
         cls.PREPARED_BIOLIP_WIN_S_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_s_training.csv"
+        cls.PREPARED_BIOLIP_S_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_s_training.csv"
         cls.PREPARED_BIOLIP_WIN_N_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_n_training.csv"
+        cls.PREPARED_BIOLIP_N_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_n_training.csv"
+        cls.PREPARED_BIOLIP_E_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_e_training.csv"
         cls.PREPARED_BIOLIP_WIN_A_TRAINING_FILE = cls.ROOT_DIR + "prepared_biolip_win_a_training.csv"
         cls.PREPARED_BIOLIP_WIN_P_TESTING_FILE = cls.ROOT_DIR + "prepared_biolip_win_p_testing.csv"
         cls.PREPARED_BIOLIP_WIN_S_TESTING_FILE = cls.ROOT_DIR + "prepared_biolip_win_s_testing.csv"
@@ -730,6 +785,24 @@ class DatasetParams(object):
         cls.PREPARED_ZK448_WIN_P_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_p_benchmark.csv"
         cls.PREPARED_ZK448_WIN_S_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_s_benchmark.csv"
         cls.PREPARED_ZK448_WIN_N_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_n_benchmark.csv"
+        cls.NUCLEOTIDE_246_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_nucleotide_246.csv"
+        cls.DNA_129_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_dna_129.csv"
+        cls.RNA_117_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_rna_117.csv"
+        cls.SMALLMOL_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_smallmolecule.csv"
+        cls.CA_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_CA.csv"
+        cls.CD_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_CD.csv"
+        cls.CO_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_CO.csv"  
+        cls.CU_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_CU.csv"
+        cls.FE2_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_FE2.csv"
+        cls.FE_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_FE.csv"
+        cls.K_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_K.csv"
+        cls.MG_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_MG.csv"
+        cls.MN_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_MN.csv"
+        cls.NA_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_NA.csv"
+        cls.NI_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_NI.csv"
+        cls.ZN_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_ZN.csv"
+        
+        cls.PEPTIDE_125_BENCHMARK_FILE = cls.ROOT_DIR + "benchmark_peptide_125.csv"
         cls.PREPARED_ZK448_WIN_A_BENCHMARK_FILE = cls.ROOT_DIR + "prepared_ZK448_win_a_benchmark.csv"
         
         cls.PREPARED_HOMO_TRAINING_FILE = cls.ROOT_DIR + "prepared_homo_training.csv"
@@ -753,9 +826,12 @@ class DatasetParams(object):
             'Homo_Hetro': DatasetParams.PREPARED_COMBINED_TRAINING_FILE,
             'Homo': DatasetParams.PREPARED_HOMO_TRAINING_FILE,
             'Hetro': DatasetParams.PREPARED_HETRO_TRAINING_FILE,
+            'PiSite': DatasetParams.PREPARED_PISITE_TRAINING_FILE,
+            'SeqInSite': DatasetParams.PREPARED_SEQINSITE_TRAINING_FILE,
             'Biolip_P': DatasetParams.PREPARED_BIOLIP_WIN_P_TRAINING_FILE,
-            'Biolip_S': DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE,
-            'Biolip_N': DatasetParams.PREPARED_BIOLIP_WIN_N_TRAINING_FILE,
+            'Biolip_S': DatasetParams.PREPARED_BIOLIP_S_TRAINING_FILE,
+            'Biolip_N': DatasetParams.PREPARED_BIOLIP_N_TRAINING_FILE,
+            'Biolip_E': DatasetParams.PREPARED_BIOLIP_E_TRAINING_FILE,
             'Biolip_A': DatasetParams.PREPARED_BIOLIP_WIN_A_TRAINING_FILE,
             'Epitope': DatasetParams.PREPARED_EPITOPE_TRAINING_FILE,
         }
@@ -767,10 +843,31 @@ class DatasetParams(object):
             'Homo_Hetro': [DatasetParams.PREPARED_HOMO_TESTING_FILE, DatasetParams.PREPARED_HETRO_TESTING_FILE],
             'Homo': [DatasetParams.PREPARED_HOMO_TESTING_FILE, DatasetParams.PREPARED_HETRO_TESTING_FILE],
             'Hetro': [DatasetParams.PREPARED_HOMO_TESTING_FILE, DatasetParams.PREPARED_HETRO_TESTING_FILE],
+            'PiSite': [DatasetParams.PREPARED_ZK448_WIN_P_BENCHMARK_FILE, 
+                       #DatasetParams.PREPARED_PISITE_TESTING_FILE,
+                       #DatasetParams.PREPARED_BIOLIP_WIN_P_TESTING_FILE
+                       ],
+            'SeqInSite': [DatasetParams.PREPARED_ZK448_WIN_P_BENCHMARK_FILE, 
+                          #DatasetParams.PREPARED_BIOLIP_WIN_P_TESTING_FILE
+                         ],
             'Biolip_P': [DatasetParams.PREPARED_ZK448_WIN_P_BENCHMARK_FILE, DatasetParams.PREPARED_BIOLIP_WIN_P_TESTING_FILE],
-            'Biolip_S': [DatasetParams.PREPARED_ZK448_WIN_S_BENCHMARK_FILE, DatasetParams.PREPARED_BIOLIP_WIN_S_TESTING_FILE],
-            #'Biolip_S': [DatasetParams.PREPARED_ZK10_WIN_S_BENCHMARK_FILE],
-            'Biolip_N': [DatasetParams.PREPARED_ZK448_WIN_N_BENCHMARK_FILE, DatasetParams.PREPARED_BIOLIP_WIN_N_TESTING_FILE],
+            'Biolip_S': [
+                        DatasetParams.SMALLMOL_BENCHMARK_FILE, 
+                        DatasetParams.CA_BENCHMARK_FILE, 
+                        DatasetParams.CD_BENCHMARK_FILE, 
+                        DatasetParams.CO_BENCHMARK_FILE,   
+                        DatasetParams.CU_BENCHMARK_FILE, 
+                        DatasetParams.FE2_BENCHMARK_FILE, 
+                        DatasetParams.FE_BENCHMARK_FILE, 
+                        DatasetParams.K_BENCHMARK_FILE, 
+                        DatasetParams.MG_BENCHMARK_FILE, 
+                        DatasetParams.MN_BENCHMARK_FILE, 
+                        DatasetParams.NA_BENCHMARK_FILE, 
+                        DatasetParams.NI_BENCHMARK_FILE, 
+                        DatasetParams.ZN_BENCHMARK_FILE,
+                        ],
+            'Biolip_N': [DatasetParams.NUCLEOTIDE_246_BENCHMARK_FILE, DatasetParams.DNA_129_BENCHMARK_FILE, DatasetParams.RNA_117_BENCHMARK_FILE],
+            'Biolip_E': [DatasetParams.PEPTIDE_125_BENCHMARK_FILE],
             'Biolip_A': [DatasetParams.PREPARED_ZK448_WIN_A_BENCHMARK_FILE, DatasetParams.PREPARED_BIOLIP_WIN_A_TESTING_FILE],
             #'Biolip_A': [DatasetParams.PREPARED_ZK448_WIN_UA_BENCHMARK_FILE],
             'UserDS_A': [DatasetParams.PREPARED_USERDS_FILE],
@@ -789,10 +886,26 @@ class DatasetParams(object):
             'Homo_Hetro': ['Homo', 'Hetro'],
             'Homo': ['Homo', 'Hetro'],
             'Hetro': ['Homo', 'Hetro'],
+            'PiSite': ['ZK448_P', 'PiSite', 'BLTEST_P'],
+            'SeqInSite': ['ZK448_P', 'BLTEST_P'],
             'Biolip_P': ['ZK448_P', 'BLTEST_P'],
-            'Biolip_S': ['ZK448_S', 'BLTEST_S'],
-            #'Biolip_S': ['ZK10_S'],
-            'Biolip_N': ['ZK448_N', 'BLTEST_N'],
+            'Biolip_S': [
+                        'SMALLMOL', 
+                        'CA', 
+                        'CD', 
+                        'CO',   
+                        'CU', 
+                        'FE2', 
+                        'FE', 
+                        'K', 
+                        'MG', 
+                        'MN', 
+                        'NA', 
+                        'NI', 
+                        'ZN',
+                        ],
+            'Biolip_E': ['PEPTIDE_125'],
+            'Biolip_N': ['NUCLEOTIDE_246', 'DNA_129', 'RNA_117'],
             'Biolip_A': ['ZK448_A', 'BLTEST_A'],
             #'Biolip_A': ['ZK448_UA'],
             'UserDS_A': ['UserDS_A'],
@@ -811,8 +924,11 @@ class DatasetParams(object):
             'Homo_Hetro': 'Homo_Hetro',
             'Homo': 'Homo',
             'Hetro': 'Hetro',
+            'PiSite': 'PiSite',
+            'SeqInSite': 'SeqInSite',
             'Biolip_P': 'Biolip_P',
             'Biolip_S': 'Biolip_S',
+            'Biolip_E': 'Biolip_E',
             'Biolip_N': 'Biolip_N',
             'Biolip_A': 'Biolip_A',
             'Epitope': 'Epitope',
@@ -832,10 +948,19 @@ class DatasetParams(object):
         try:
             cls.SEQ_COLUMN_IND = cls.FEATURE_COLUMNS.index(cls.SEQ_COLUMN_NAME)
             # One-Hot dimension = 21; Prot2vec dimension = 100; seqVec/prot-bert dimension = 1024;
+            '''
+            if cls.EMBEDDING == cls.ONE_HOT_EMBEDDING:
+                cls.PROT_RESIDU_ENCODING_DIM = len(cls.AA_LIST)
+            elif cls.EMBEDDING == cls.PROT2VEC_EMBEDDING:
+                cls.PROT_RESIDU_ENCODING_DIM = cls.PROT_BERT_ENCODING_DIM
+            elif cls.EMBEDDING == cls.ESM2_EMBEDDING:
+                cls.PROT_RESIDU_ENCODING_DIM = cls.ESM2_ENCODING_DIM 
+            '''
             if cls.ONE_HOT_ENCODING:
                 cls.PROT_RESIDU_ENCODING_DIM = len(cls.AA_LIST)
             else:
-                cls.PROT_RESIDU_ENCODING_DIM = 1024 #100    
+                cls.PROT_RESIDU_ENCODING_DIM = cls.PROT_BERT_ENCODING_DIM
+                #cls.PROT_RESIDU_ENCODING_DIM = cls.ESM2_ENCODING_DIM    
             # Note that encoding replaces AliSeq; so we have to remove AliSeq from the FEATURES_SIZE.
             cls.FEATURES_SIZE_COMPENSATION = -1
         except ValueError:
@@ -896,8 +1021,11 @@ class DatasetParams(object):
             'Homo_Hetro': ['AliSeq', ['Interface1']],
             'Homo': ['AliSeq', ['Interface1']],
             'Hetro': ['AliSeq', ['Interface1']],
+            'PiSite': ['sequence', ['p_interface']],
+            'SeqInSite': ['sequence', ['p_interface']],
             'Biolip_P': ['sequence', ['p_interface']],
             'Biolip_S': ['sequence', ['s_interface']],
+            'Biolip_E': ['sequence', ['e_interface']],
             'Biolip_N': ['sequence', ['n_interface']],
             'Biolip_A': ['sequence', ['any_interface']],
             'UserDS_A': ['sequence', ['any_interface']],
@@ -918,7 +1046,9 @@ class DatasetParams(object):
     
     @classmethod
     def getEncondingType(cls):
-        return 'One-Hot' if cls.ONE_HOT_ENCODING else 'Protbert' #'Prot2vec', 'Seqvec' 
+        #return cls.EMEBDDING_NAME[cls.EMBEDDING] 
+        return 'One-Hot' if cls.ONE_HOT_ENCODING else 'Protbert' #'Prot2vec', 'Seqvec'
+        #return 'One-Hot' if cls.ONE_HOT_ENCODING else 'ESM2'  
     
     @classmethod
     def getFeatureColumns(cls):
@@ -934,7 +1064,9 @@ class PPIDatasetCls(object):
     protvecDictionary = None
     mcOneHotDictionary = None
     seqvecDictionary = None
+    allProtbertDictionary = None
     protbertDictionary = None
+    esm2Dictionary = None
 
     @classmethod
     def setLogger(cls, loggerParam):
@@ -999,7 +1131,7 @@ class PPIDatasetCls(object):
         protAndMaxLenEqual = (seqListLen == sliceSize)
         
         # numPeptides > 0 ===> protein-length is larger than the maximum length, and therefore this protein needs to be sliced. However, we slice it
-        # if we are not instructed to to skip slicing. As a result, we remove this protein from the list. Note that the empty array must be reshaped,
+        # if we are not instructed to skip slicing. As a result, we remove this protein from the list. Note that the empty array must be reshaped,
         # otherwise numpy gives an error message. Because the shape of an empty array is (0,), the first dimension of the new shape of the reshape operation
         # must be zero. 
         if not protAndMaxLenEqual and numPeptides > 0 and DatasetParams.SKIP_SLICING:
@@ -1094,11 +1226,12 @@ class PPIDatasetCls(object):
         
         # Shape inputData: (10086, 8, 22)
         # Shape labelData: (10086, 8, 1)
+        #'''
         if labelData:
             logger.info("Shape labelData: %s", concatenatedSlices.shape)
         else:
             logger.info("Shape inputData: %s", concatenatedSlices.shape)
-        
+        #'''
         return concatenatedSlices
         
     """
@@ -1108,6 +1241,8 @@ class PPIDatasetCls(object):
     """
     @classmethod
     def consInputs(cls, dataFile, featuresTable, protIds, inputShape):
+        import gc
+        
         # featuresRow = [    mean_H             RSA_q             AliSeq ]
         # featuresRow = ['0.23,...,0.45', '0.56,...,0.34', ..., 'A,...,T']
         def applyFeatureEncodingForEachInput(featuresRow, protId):
@@ -1126,12 +1261,22 @@ class PPIDatasetCls(object):
                 if featureInd == DatasetParams.SEQ_COLUMN_IND:
                     # Shape protEncodings for one example of protein-sequence length of 442: (44200,); 
                     # which is the concatenation of encodings for all residu's.
+                    '''
+                    if DatasetParams.EMBEDDING == DatasetParams.ONE_HOT_EMBEDDING:
+                        residuVal = cls.getOneHotEncodings(featureStr)
+                    elif DatasetParams.EMBEDDING == DatasetParams.Protbert_EMBEDDING:
+                        residuVal = cls.getProtbertEncodings(dataFile, protId)
+                    elif DatasetParams.EMBEDDING == DatasetParams.ESM2_EMBEDDING:
+                        residuVal = cls.getESM2Encodings(dataFile, protId)
+                    '''
                     if DatasetParams.ONE_HOT_ENCODING:
                         residuVal = cls.getOneHotEncodings(featureStr)
                     else:    
                         #residuVal = cls.getProtvecEncodings(featureStr) 
                         #residuVal = cls.getSeqvecEncodings(dataFile, protId)
                         residuVal = cls.getProtbertEncodings(dataFile, protId)
+                        #print('%%%protId: ', protId, ' // ', residuVal)
+                        #residuVal = cls.getESM2Encodings(dataFile, protId)
                       
                     # residuVal is a list of encodings for all residus: [c1R1,...,cnR1, c1R2,...,cnR2, ..., c1Rn,...,cnRn];
                     # we have to reshape it as: [ [c1R1,...,cnR1], 
@@ -1185,11 +1330,21 @@ class PPIDatasetCls(object):
             
             # Shape featureVals: (42, 8, 22) or (34, 8, 22) or ...
             #logger.info("Shape featureVals: %s", featureVals.shape)
+            #gc.collect()
             return featureVals
     
         proteinCount = 0
+        '''
+        tasks = [dask.delayed(applyFeatureEncodingForEachInput)(x, y) for x,y in zip(featuresTable, protIds)]
+        daskResults = dask.compute(*tasks)
+        inputDataList = list(daskResults)
+        inputData = cls.concatSlices(inputDataList, labelData=False)
+        '''
+        #'''
         inputDataList = list(map(applyFeatureEncodingForEachInput, featuresTable, protIds))
         inputData = cls.concatSlices(inputDataList, labelData=False)
+        #'''
+        
         #print(featuresTable[0,:])
         #print(inputData[0, :, :, :])
         
@@ -1533,11 +1688,13 @@ class PPIDatasetCls(object):
     
     @classmethod    
     def splitData(cls, inputData, labelData):
-        doShuffel = True    
+        # Put doShuffel = False because we don't load the data once in the memory. Otherwise, model will not learn consistently.
+        doShuffel = False #True    
         randState = 42 #None
-        testSize = DatasetParams.VALIDATION_RATE #100
         stratify = None
-        trainX, valX, trainY, valY = train_test_split(inputData, labelData, test_size=testSize, random_state=randState, shuffle=doShuffel, stratify=stratify)
+        testSize = DatasetParams.VALIDATION_RATE #100
+        trainX, valX, trainY, valY = train_test_split(inputData, labelData, test_size=testSize,
+                                                      random_state=randState, shuffle=doShuffel, stratify=stratify)
         return trainX, valX, trainY, valY
     
     @classmethod    
@@ -1554,7 +1711,7 @@ class PPIDatasetCls(object):
             padConst = DatasetParams.LABEL_PAD_CONST
         else:
             padConst = DatasetParams.FEATURE_PAD_CONST
-        data = K.flatten(data)
+        data = tf.reshape(data, [-1])
         slicedData = cls.sliceProt2Peptides(data, sliceShape, padConst)
         return slicedData
     
@@ -1567,6 +1724,147 @@ class PPIDatasetCls(object):
     def getProtIds(cls, dataset):
         protIds = dataset[DatasetParams.PROT_ID_NAME]
         return protIds.tolist()
+    
+    
+    @classmethod
+    def makeLazyReader(cls, dataFile):
+        def loadLazyProtbertDictionary(dataFile):
+            protbertFileDir = Path(DatasetParams.PROT_BERT_EMBEDDING_DIR)
+            head, tail = os.path.split(dataFile)
+            protbertFile = tail.replace('.csv', '.npz')
+            cls.allProtbertDictionary = np.load(protbertFileDir/protbertFile)
+            return
+        
+        # we load the npz file only once and then we slice it.
+        loadLazyProtbertDictionary(dataFile)
+        # we load the csv file only once and then we slice it.
+        desiredCols = [DatasetParams.PROT_ID_NAME] + DatasetParams.FEATURE_COLUMNS + DatasetParams.LABEL_COLUMNS
+        reader = pd.read_csv(dataFile, chunksize=DatasetParams.CHUNK_SIZE, usecols=desiredCols)
+        return reader
+    
+    @classmethod
+    def makeLazyDaskReader(cls, dataFile):
+        def loadLazyCSV(dataFile):
+            # Load CSV data with Dask. We load the csv file only once and then we slice it.
+            desiredCols = [DatasetParams.PROT_ID_NAME] + DatasetParams.FEATURE_COLUMNS + DatasetParams.LABEL_COLUMNS
+            reader = pd.read_csv(dataFile, chunksize=DatasetParams.CHUNK_SIZE, usecols=desiredCols)
+            csvDdf = ddf.from_pandas(pd.concat(reader), chunksize=DatasetParams.CHUNK_SIZE)
+            
+            csvDaskIter = csvDdf.to_delayed()  # Convert CSV to delayed
+            return csvDaskIter
+            #return csvDdf
+        
+        def loadLazyEmb(dataFile):
+            embFileDir = Path(DatasetParams.PROT_BERT_EMBEDDING_DIR)
+            head, tail = os.path.split(dataFile)
+            embFile = tail.replace('.csv', '.npz')
+            with np.load(embFileDir/embFile, mmap_mode='r') as embData:
+                cls.allProtbertDictionary = {}
+                allProtIds = list(embData.keys())
+                numProts = len(allProtIds)
+                #print("%%%%%%%%%%%%%% Number of proteins: ", numProts)
+                for protId in allProtIds:
+                    cls.allProtbertDictionary[protId] = darr.from_array(embData[protId]) #dask array
+            return numProts
+        
+        #csvDdf = loadLazyCSV(dataFile)
+        csvDaskIter = loadLazyCSV(dataFile)
+        numProts = loadLazyEmb(dataFile)
+        #return csvDdf, numProts
+        return csvDaskIter, numProts
+    
+    @classmethod
+    def makeLazyDaskDataset(cls, chunkDataset, inputShape, labelShape, training):
+        # We load first all delayed objects (embeddings) for every protein one-by-one in the chunk and then we dask-compute every protein 
+        # separately: loading the actual embeddings for each protein. This method seems faster than the next one.
+        def getChunkProtbertDictionary(chunkProtIds):  
+            chunkDictionary = {}
+            for protId in chunkProtIds:
+                chunkDictionary[protId] = cls.allProtbertDictionary[protId].compute()
+                #print('&&& protId: ', protId, ' // ', chunkDictionary[protId])
+            return chunkDictionary
+        
+        # We load first all delayed objects (embeddings) for all proteins in the chunk and then we dask-compute them: 
+        # loading the actual embeddings. This method is slower than the previous one.
+        def getChunkProtbertDictionary2(chunkProtIds):  
+            chunkDictionary = {}
+            delayedChunkEmbs = []
+            for protId in chunkProtIds:
+                delayedChunkEmbs.append(cls.allProtbertDictionary[protId])
+            chunkEmbs = dask.compute(*delayedChunkEmbs)    
+            for protId in chunkProtIds:
+                chunkDictionary[protId] = chunkEmbs[chunkProtIds.index(protId)]
+                #print('&&& protId: ', protId, ' // ', chunkDictionary[protId])
+            return chunkDictionary
+        
+        featuresTable = chunkDataset.loc[:, DatasetParams.FEATURE_COLUMNS].values.astype(str)
+        labelvec = chunkDataset.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(str)
+        # Shape featuresTable: (288, 20) | Shape labelVector: (288, 1)
+        #logger.info("Shape featuresTable: %s | Shape labelvec: %s", featuresTable.shape, labelvec.shape)
+        
+        dataFile = DatasetParams.EXPR_TRAINING_FILE
+        #Shape inputData: (288, 32, 32, 20)
+        #Shape labelData: (288, 32, 32, 1)
+        chunkProtIds = cls.getProtIds(chunkDataset)
+        cls.protbertDictionary = getChunkProtbertDictionary(chunkProtIds)
+        
+        inputData = cls.consInputs(dataFile, featuresTable, chunkProtIds, inputShape)
+        labelData = cls.consLabels(labelvec, labelShape)
+        
+        if DatasetParams.USE_DOWN_SAMPLING:
+            inputData, labelData = cls.performDownSampling(inputData, labelData)
+       
+        if training:
+                trainX, valX, trainY, valY = cls.splitData(inputData, labelData)
+                # No need for this any more.
+                #trainY = cls.encodeLabels(trainY, True)
+                #print('88888888888 labelData: ', labelData.shape, ' | trainY: ', trainY.shape,  ' | valY: ', valY.shape )
+        else:
+                valX = inputData
+                valY = labelData
+                trainX, trainY = None, None
+        # No need for this any more.
+        #valY = cls.encodeLabels(valY, False)
+
+        return trainX, valX, trainY, valY
+        
+    @classmethod
+    def makeLazyDataset(cls, chunkDataset, inputShape, labelShape, training):
+        def getChunkProtbertDictionary(chunkProtIds):  
+            chunkDictionary = {}
+            for protId in chunkProtIds:
+                chunkDictionary[protId] = cls.allProtbertDictionary[protId]
+            return chunkDictionary
+       
+        #DatasetParams.PROT_IDS = cls.getProtIds(chunkDataset)
+        featuresTable = chunkDataset.loc[:, DatasetParams.FEATURE_COLUMNS].values.astype(str)
+        labelvec = chunkDataset.loc[:, DatasetParams.LABEL_COLUMNS].values.astype(str)
+        # Shape featuresTable: (288, 20) | Shape labelVector: (288, 1)
+        logger.info("Shape featuresTable: %s | Shape labelvec: %s", featuresTable.shape, labelvec.shape)
+        
+        dataFile = DatasetParams.EXPR_TRAINING_FILE
+        #Shape inputData: (288, 32, 32, 20)
+        #Shape labelData: (288, 32, 32, 1)
+        chunkProtIds = cls.getProtIds(chunkDataset)
+        cls.protbertDictionary = getChunkProtbertDictionary(chunkProtIds)
+        
+        inputData = cls.consInputs(dataFile, featuresTable, chunkProtIds, inputShape)
+        labelData = cls.consLabels(labelvec, labelShape)
+        
+        if DatasetParams.USE_DOWN_SAMPLING:
+            inputData, labelData = cls.performDownSampling(inputData, labelData)
+       
+        if training:
+                trainX, valX, trainY, valY = cls.splitData(inputData, labelData)
+                trainY = cls.encodeLabels(trainY, True)
+                #print('88888888888 labelData: ', labelData.shape, ' | trainY: ', trainY.shape,  ' | valY: ', valY.shape )
+        else:
+                valX = inputData
+                valY = labelData
+                trainX, trainY = None, None
+        valY = cls.encodeLabels(valY, False)
+         
+        return trainX, valX, trainY, valY
     
     @classmethod    
     def makeDataset(cls, dataFile, inputShape, labelShape, training, partioning=False):
@@ -1584,6 +1882,7 @@ class PPIDatasetCls(object):
         protIds = cls.getProtIds(dataset)
         #cls.seqvecDictionary = None
         cls.protbertDictionary = None
+        cls.esm2Dictionary = None
         inputData = cls.consInputs(dataFile, featuresTable, protIds, inputShape)
         labelData = cls.consLabels(labelvec, labelShape)
         
@@ -1611,7 +1910,7 @@ class PPIDatasetCls(object):
         classes = list(range(DatasetParams.NUM_CLASSES))
         num2classes = {aa:idx for idx, aa in enumerate(classes)}
         ohIdx = list(num2classes.values())
-        oh = U.to_categorical(ohIdx)
+        oh = utils.to_categorical(ohIdx)
         i = 0
         cls.mcOneHotDictionary = num2classes.copy()
         for key in cls.mcOneHotDictionary.keys():
@@ -1641,7 +1940,7 @@ class PPIDatasetCls(object):
         aas = DatasetParams.AA_LIST
         num2aa = {aa:idx for idx, aa in enumerate(aas)}
         ohIdx = list(num2aa.values())
-        oh = U.to_categorical(ohIdx)
+        oh = utils.to_categorical(ohIdx)
         i = 0
         cls.oneHotDictionary = num2aa.copy()
         for key in cls.oneHotDictionary.keys():
@@ -1750,7 +2049,7 @@ class PPIDatasetCls(object):
             seqvecFile = tail.replace('.csv', '.npz')
             seqvecDictionary = np.load(modelDir/seqvecFile)
         
-        seqvecEncodings = seqvecDictionary[protId]      #shape=(protLen,1024)
+        seqvecEncodings = cls.seqvecDictionary[protId]      #shape=(protLen,1024)
         seqvecEncodings = seqvecEncodings.flatten()     #shape=(protLenx1024,)
         
         return seqvecEncodings
@@ -1761,14 +2060,30 @@ class PPIDatasetCls(object):
             protbertFileDir = Path(DatasetParams.PROT_BERT_EMBEDDING_DIR)
             head, tail = os.path.split(dataFile)
             protbertFile = tail.replace('.csv', '.npz')
-            protbertDictionary = np.load(protbertFileDir/protbertFile)
+            cls.protbertDictionary = np.load(protbertFileDir/protbertFile)
         
-        protbertEncodings = protbertDictionary[protId]      #shape=(protLen,1024)
+        protbertEncodings = cls.protbertDictionary[protId]      #shape=(protLen,1024)
         protbertEncodings = protbertEncodings.flatten()     #shape=(protLenx1024,)
         
         return protbertEncodings
+
+    @classmethod
+    def getESM2Encodings(cls, dataFile, protId):
+        if cls.esm2Dictionary == None:
+            esm2FileDir = Path(DatasetParams.ESM2_EMBEDDING_DIR)
+            head, tail = os.path.split(dataFile)
+            esm2File = tail.replace('.csv', '.npz')
+            esm2Dictionary = np.load(esm2FileDir/esm2File)
+        
+        esm2Encodings = cls.esm2Dictionary[protId]      #shape=(protLen,2560)
+        esm2Encodings = esm2Encodings.flatten()     #shape=(protLenx2560,)
+        
+        return esm2Encodings
         
 class DatasetPreparation(object):
+    protbertTokenizer = None
+    protbertModel = None
+    
     @classmethod
     def getAALabel(cls, aa1LetCode):
         aa1To3Dict = {
@@ -1820,6 +2135,7 @@ class DatasetPreparation(object):
         datasetLabelDict = {
             'win_n': 'Biolip_N',
             'win_s': 'Biolip_S',
+            'win_e': 'Biolip_E',
             'win_p': 'Biolip_P',
             'win_a': 'Biolip_A',
             'combined': 'Homo_Hetro',
@@ -1837,6 +2153,7 @@ class DatasetPreparation(object):
     def getStatFileName(cls, fileName):
         statFileDict = {
             'win_n': DatasetParams.PREPARED_BIOLIP_WIN_N_TRAINING_FILE.replace('prepared_', 'Stat_'),
+            'win_e': DatasetParams.PREPARED_BIOLIP_E_TRAINING_FILE.replace('prepared_', 'Stat_'),
             'win_s': DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE.replace('prepared_', 'Stat_'),
             'win_p': DatasetParams.PREPARED_BIOLIP_WIN_P_TRAINING_FILE.replace('prepared_', 'Stat_'),
             'win_a': DatasetParams.PREPARED_BIOLIP_WIN_A_TRAINING_FILE.replace('prepared_', 'Stat_'),
@@ -1977,6 +2294,7 @@ class DatasetPreparation(object):
                 
         return protIds
     
+    '''
     @classmethod    
     def createSeqvecFile(cls, dataFile):
         CUDA_DEVICE = 0    # cuda_device=-1 for CPU; cuda_device=0 for GPU
@@ -2016,16 +2334,40 @@ class DatasetPreparation(object):
         print("\n## SeqVec file generated @@: ", modelDir/seqvecFile, " @@")
         
         return 
+    '''
+   
+    @classmethod    
+    def convertProtbertPY2TF(cls):
+        from transformers import TFT5EncoderModel, T5Tokenizer
+        
+        modelDir = Path(DatasetParams.PROT_BERT_MODEL_DIR)
+        tokenizer = T5Tokenizer.from_pretrained(modelDir, do_lower_case=False)
+        model = TFT5EncoderModel.from_pretrained(modelDir, from_pt=True)
+        model.save_pretrained(DatasetParams.PROT_BERT_TF_MODEL_DIR)
+        tokenizer.save_pretrained(DatasetParams.PROT_BERT_TF_MODEL_DIR)
+        print(f"Converting pytorch tensors to tf-tensors and saving to {DatasetParams.PROT_BERT_TF_MODEL_DIR}")
+        return
     
     @classmethod    
     def createProtbertFile(cls, dataFile):
-        from transformers import TFT5EncoderModel, T5Tokenizer
-        #from transformers import TFBertModel, BertTokenizer, BertConfig
-        import numpy as np
+        '''
+        Protbert usage is optimized. We use directly tf-tensors (instead of each time converting pytorch-tensors) 
+        and we load the protbert tf-model just once (and not for every file).
+        '''
         import gc
+        from transformers import TFT5EncoderModel, T5Tokenizer
+        from transformers import logging as hf_logging
+        hf_logging.set_verbosity_error()
+        
+        def initProtbert(modelDir):
+            cls.protbertTokenizer = T5Tokenizer.from_pretrained(modelDir, do_lower_case=False, legacy=True)
+            cls.protbertModel = TFT5EncoderModel.from_pretrained(modelDir)
+            return
         
         def consSeqForAllProts(protIds, aavec):
             def consSeqForEachProt(protId, aaStr):
+                # Each AA is considered as a word, therefore we have to put space between AAs.
+                # The embedding length is increased by 1 because the end-of-sentence token.
                 # Convert 'M,D,I,R,...,E,E,A,V' to 'M D I R...E E A V'.
                 protSeq = aaStr.replace(',', ' ')
                 ids = tokenizer.encode_plus(protSeq, add_special_tokens=True, padding=True, return_tensors="tf")
@@ -2050,16 +2392,15 @@ class DatasetPreparation(object):
         
         print("\n## Generating Protbert file for @@: ", dataFile, " @@")
         print("## PROT_BERT_MODEL_DIR: ", DatasetParams.PROT_BERT_MODEL_DIR, " | PROT_BERT_EMBEDDING_DIR", DatasetParams.PROT_BERT_EMBEDDING_DIR)
+        creatingStartTime = time.time()
         embDict = dict()
         modelDir = Path(DatasetParams.PROT_BERT_MODEL_DIR)
-        tokenizer = T5Tokenizer.from_pretrained(modelDir, do_lower_case=False )
-        model = TFT5EncoderModel.from_pretrained(modelDir, from_pt=True)
+        if cls.protbertModel == None:
+            initProtbert(modelDir)
+        tokenizer = cls.protbertTokenizer
+        model = cls.protbertModel
         
-        print("%%%%%%%%%%% modelDir: ", modelDir)
-        #tokenizer = BertTokenizer.from_pretrained(modelDir, do_lower_case=False )
-        #model = TFBertModel.from_pretrained(modelDir, from_pt=True)
-        
-        gc.collect()
+        #gc.collect()
         
         dataSet = pd.read_csv(dataFile)
         protIds = dataSet.loc[:, DatasetParams.PROT_ID_NAME].values
@@ -2071,6 +2412,67 @@ class DatasetPreparation(object):
         protbertFile = tail.replace('.csv', '.npz')
         np.savez(protbertFileDir/protbertFile, **embDict)
         print("\n## ProtBert file generated @@: ", protbertFileDir/protbertFile, " @@")
+        creatingEndTime = time.time()
+        print("Creating time: ", datetime.timedelta(seconds=creatingEndTime-creatingStartTime))
+        
+        return
+    
+    @classmethod    
+    def createESM2File(cls, dataFile):
+        from transformers import TFAutoModel, AutoModel
+        from transformers import AutoTokenizer
+        import gc
+        
+        def consSeqForAllProts(protIds, aavec):
+            def consSeqForEachProt(protId, aaStr):
+                # The whole protein is considered as one compact sentence, without any space between AAs.
+                # The embedding length is increased by 2 because the start-of-sentence and end-of-sentence tokens.
+                # Convert 'M,D,I,R,...,E,E,A,V' to 'MDIR...EAV'.
+                protSeq = aaStr.replace(',', '')
+                ids = tokenizer.encode_plus(protSeq, add_special_tokens=True, padding=False, return_tensors="tf")
+                input_ids = ids['input_ids']
+                attention_mask = ids['attention_mask']
+                
+                embedding = model(input_ids)
+                embedding = np.asarray(embedding.last_hidden_state)
+                #print("shape-embedding: ", embedding.shape)
+                
+                #embedding = model(input_ids)[0]
+                #embedding = np.asarray(embedding)
+                
+                attention_mask = np.asarray(attention_mask)
+                protLen = (attention_mask[0] == 1).sum()
+                embAtRes = embedding[0][1:protLen-1]
+                print('prot-id: ', protId, ' | emb-shape: ', embAtRes.shape)
+                embDict[protId] = embAtRes
+                return
+            list(map(consSeqForEachProt, protIds, aavec))   #note: without 'list()' 'map' doesn't work.
+            return embDict
+        
+        print("\n## Generating ESM-2 file for @@: ", dataFile, " @@")
+        print("## ESM2_MODEL_DIR: ", DatasetParams.ESM2_MODEL_DIR, " | ESM2_EMBEDDING_DIR", DatasetParams.ESM2_EMBEDDING_DIR)
+        embDict = dict()
+        modelDir = Path(DatasetParams.ESM2_MODEL_DIR)
+        tokenizer = AutoTokenizer.from_pretrained(modelDir)
+        
+        # For some strange reason, we get "undefined variable from import: from_pretrained" error."
+        # So, in order to run the generation of ESM2-embedding, this error must be tackled
+        #model = TFAutoModel.from_pretrained(modelDir, from_pt=False)  # TensorFlow model
+        model = None
+        #model = AutoModel.from_pretrained(modelDir, from_tf=True)
+        
+        gc.collect()
+        
+        dataSet = pd.read_csv(dataFile)
+        protIds = dataSet.loc[:, DatasetParams.PROT_ID_NAME].values
+        aavec = dataSet.loc[:, DatasetParams.SEQ_COLUMN_NAME].values.astype(str)
+        embDict = consSeqForAllProts(protIds, aavec)
+        
+        esm2FileDir = Path(DatasetParams.ESM2_EMBEDDING_DIR)
+        head, tail = os.path.split(dataFile)
+        esm2File = tail.replace('.csv', '.npz')
+        np.savez(esm2FileDir/esm2File, **embDict)
+        print("\n## ESM2 file generated @@: ", esm2FileDir/esm2File, " @@")
         
         return
     
@@ -2984,6 +3386,8 @@ def genPreparedBiolipFiles(onlyTest=False):
     DatasetPreparation.prepareBiolipWinData(DatasetParams.BIOLIP_WIN_TRAINING_FILE, DatasetParams.PREPARED_BIOLIP_WIN_N_TRAINING_FILE)
     DatasetPreparation.prepareBiolipWinData(DatasetParams.BIOLIP_WIN_TESTING_FILE, DatasetParams.PREPARED_BIOLIP_WIN_N_TESTING_FILE)
     DatasetPreparation.prepareBiolipWinData(DatasetParams.ZK448_WIN_BENCHMARK_FILE, DatasetParams.PREPARED_ZK448_WIN_N_BENCHMARK_FILE)
+    DatasetParams.LABEL_COL_NAME = 'e_interface'
+    DatasetPreparation.prepareBiolipWinData(DatasetParams.BIOLIP_WIN_TRAINING_FILE, DatasetParams.PREPARED_BIOLIP_E_TRAINING_FILE)
     DatasetParams.LABEL_COL_NAME = 's_interface'
     DatasetPreparation.prepareBiolipWinData(DatasetParams.BIOLIP_WIN_TRAINING_FILE, DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE)
     DatasetPreparation.prepareBiolipWinData(DatasetParams.BIOLIP_WIN_TESTING_FILE, DatasetParams.PREPARED_BIOLIP_WIN_S_TESTING_FILE)
@@ -3091,6 +3495,20 @@ def genBiolipStats(use_comet=False):
     projName = 'biolip-ds'
 
     if use_comet:
+        DatasetPreparation.initExperiment(projName, 'SeqInSite')
+    DatasetParams.LABEL_COLUMNS = ['p_interface']
+    DatasetPreparation.generateProtlenFreq(DatasetParams.PREPARED_SEQINSITE_TRAINING_FILE, DatasetParams.REAL_LEN_COL_NAME)
+    DatasetPreparation.generateIPBs(DatasetParams.PREPARED_SEQINSITE_TRAINING_FILE, 10)
+    DatasetPreparation.generateAAIPBs(DatasetParams.PREPARED_SEQINSITE_TRAINING_FILE, 10)
+    
+    if use_comet:
+        DatasetPreparation.initExperiment(projName, 'PiSite')
+    DatasetParams.LABEL_COLUMNS = ['p_interface']
+    DatasetPreparation.generateProtlenFreq(DatasetParams.PREPARED_PISITE_TRAINING_FILE, DatasetParams.REAL_LEN_COL_NAME)
+    DatasetPreparation.generateIPBs(DatasetParams.PREPARED_PISITE_TRAINING_FILE, 10)
+    DatasetPreparation.generateAAIPBs(DatasetParams.PREPARED_PISITE_TRAINING_FILE, 10)
+
+    if use_comet:
         DatasetPreparation.initExperiment(projName, 'Biolip_N')
     DatasetParams.LABEL_COLUMNS = ['n_interface']
     DatasetPreparation.generateProtlenFreq(DatasetParams.PREPARED_BIOLIP_WIN_N_TRAINING_FILE, DatasetParams.REAL_LEN_COL_NAME)
@@ -3128,6 +3546,13 @@ def genBiolipStats(use_comet=False):
     DatasetPreparation.generateAAIPBs(DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE, 10)
     DatasetPreparation.generateAAIPBs(DatasetParams.PREPARED_BIOLIP_WIN_S_TESTING_FILE, 10)
     DatasetPreparation.generateAAIPBs(DatasetParams.PREPARED_ZK448_WIN_S_BENCHMARK_FILE, 10)
+    
+    if use_comet:
+        DatasetPreparation.initExperiment(projName, 'Biolip_E')
+    DatasetParams.LABEL_COLUMNS = ['e_interface']
+    DatasetPreparation.generateProtlenFreq(DatasetParams.PREPARED_BIOLIP_E_TRAINING_FILE, DatasetParams.REAL_LEN_COL_NAME)
+    DatasetPreparation.generateIPBs(DatasetParams.PREPARED_BIOLIP_E_TRAINING_FILE, 10)
+    DatasetPreparation.generateAAIPBs(DatasetParams.PREPARED_BIOLIP_E_TRAINING_FILE, 10)
     
     if use_comet:
         DatasetPreparation.initExperiment(projName, 'Biolip_A')
@@ -3173,6 +3598,23 @@ def genEpitopProtBertFiles():
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_EPITOPE_TESTING_FILE)
     return
 
+def genEpitopESM2Files():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    #DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_EPITOPE_TRAINING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_EPITOPE_TESTING_FILE)
+    return
+
+def genPiSiteProtBertFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'sequence'
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_PISITE_TRAINING_FILE)
+    #DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_PISITE_TESTING_FILE)
+    return
+
+def genSeqInSiteProtBertFiles():
+    DatasetParams.SEQ_COLUMN_NAME = 'sequence'
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_SEQINSITE_TRAINING_FILE)
+    return
+
 def genBiolipProtBertFiles():
     DatasetParams.SEQ_COLUMN_NAME = 'sequence'
     """
@@ -3184,13 +3626,60 @@ def genBiolipProtBertFiles():
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_P_TESTING_FILE)
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_ZK448_WIN_P_BENCHMARK_FILE)
     
-    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_S_TRAINING_FILE)
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_S_TESTING_FILE)
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_ZK448_WIN_S_BENCHMARK_FILE)
-    """
-    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_N_TRAINING_FILE)
-    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_WIN_N_TESTING_FILE)
+    
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_ZK448_WIN_N_BENCHMARK_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.NUCLEOTIDE_246_BENCHMARK_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.DNA_129_BENCHMARK_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.RNA_117_BENCHMARK_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_N_TRAINING_FILE)
+    
+    DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_E_TRAINING_FILE)
+    DatasetPreparation.createProtbertFile(DatasetParams.PEPTIDE_125_BENCHMARK_FILE)
+    """
+    DatasetPreparation.createProtbertFile(DatasetParams.SMALLMOL_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.CA_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.CD_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.CO_BENCHMARK_FILE)   
+    DatasetPreparation.createProtbertFile(DatasetParams.CU_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.FE2_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.FE_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.K_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.MG_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.MN_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.NA_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.NI_BENCHMARK_FILE) 
+    DatasetPreparation.createProtbertFile(DatasetParams.ZN_BENCHMARK_FILE)
+    #DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_BIOLIP_S_TRAINING_FILE)
+    
+    return
+
+def genBiolipESM2Files():
+    DatasetParams.SEQ_COLUMN_NAME = 'sequence'
+    
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_P_TRAINING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_P_TESTING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_ZK448_WIN_P_BENCHMARK_FILE)
+    """
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_A_TRAINING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_A_TESTING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_ZK448_WIN_A_BENCHMARK_FILE)
+    
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_P_TRAINING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_P_TESTING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_ZK448_WIN_P_BENCHMARK_FILE)
+    
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_S_TRAINING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_S_TESTING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_ZK448_WIN_S_BENCHMARK_FILE)
+    
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_N_TRAINING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_BIOLIP_WIN_N_TESTING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_ZK448_WIN_N_BENCHMARK_FILE)
+    """
+    
     return
 
 def genSerendipSeqvecFiles():
@@ -3210,6 +3699,13 @@ def genSerendipProtBertFiles():
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_COMBINED_TRAINING_FILE)
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_HOMO_TESTING_FILE)
     DatasetPreparation.createProtbertFile(DatasetParams.PREPARED_HETRO_TESTING_FILE)
+    return
+
+def genSerendipESM2Files():
+    DatasetParams.SEQ_COLUMN_NAME = 'AliSeq'
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_COMBINED_TRAINING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_HOMO_TESTING_FILE)
+    DatasetPreparation.createESM2File(DatasetParams.PREPARED_HETRO_TESTING_FILE)
     return
 
 def genBiolipSeqvecFiles():
@@ -3250,8 +3746,15 @@ if __name__ == "__main__":
     #genEpitopSeqvecFiles()
     #genBiolipSeqvecFiles()
     
-    genEpitopProtBertFiles()
+    #DatasetPreparation.convertProtbertPY2TF()
+    #genEpitopProtBertFiles()
     #genSerendipProtBertFiles()
+    genPiSiteProtBertFiles()
+    #genSeqInSiteProtBertFiles()
+    #genBiolipProtBertFiles()
+    
+    #genEpitopESM2Files()
+    #genBiolipESM2Files()
     
     #genVennBiolipFiles()
     #genUpdatedBiolipFile()

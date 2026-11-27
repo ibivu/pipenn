@@ -14,7 +14,9 @@ PRED_TYPE=$1
 echo "PRED_TYPE is $PRED_TYPE"
 
 USER_HOME=/scistor/informatica/rhu300
-PIPENN_HOME=$USER_HOME/pipennemb
+PIPENN_HOME=$USER_HOME/pipenn3
 JOB_DIR=$PIPENN_HOME/jobs
 
-srun -N 1 -p binf --cpus-per-task 24 $JOB_DIR/ws-pipenn.sh $PRED_TYPE
+srun -N 1 -p binf --nodelist=node[012] $JOB_DIR/ws-pipenn.sh $PRED_TYPE
+#srun -N 1 -p binf $JOB_DIR/ws-pipenn.sh $PRED_TYPE
+#srun -N 1 -p bw --cpus-per-task 20 $JOB_DIR/ws-pipenn.sh $PRED_TYPE

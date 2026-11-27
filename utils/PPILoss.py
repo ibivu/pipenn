@@ -5,11 +5,12 @@ from sklearn.metrics import roc_auc_score, precision_recall_fscore_support, roc_
 import numpy as np
 import pandas as pd
 
-from tensorflow.keras import backend as K
-from tensorflow.keras import metrics as M
-from tensorflow.keras import losses as L
+from keras import backend
+from keras import ops
+from keras.losses import BinaryCrossentropy
+from keras import metrics as M
+from keras import losses as L
 import tensorflow as tf
-#import tensorflow.compat.v1 as tf
 
 from PPIDataset import DatasetParams
 
@@ -28,9 +29,45 @@ class LossParams:
     LOSS_FUN = CROSS_ENTROPY
     USE_KERAS_ENTROPY = False
     
-    # used for confusion matrix, presision, recall, f1 scores; not for auc because multiple thresholds are used for determining auc.
-    CLASS_THRESHOLD = 0.40 #0.30 #0.50
+    DEFAULT_CUTOFF = 0
+    SIMPLE_CUTOFF = 1
+    YOUDEN_CUTOFF = 2
+    EQUAL_CUTOFF = 3
+    OPTIMAL_CUTOFF = 4
+    CUTOFF_NAMES = ['DEFAULT_CUTOFF', 'SIMPLE_CUTOFF', 'YOUDEN_CUTOFF', 'EQUAL_CUTOFF', 'OPTIMAL_CUTOFF']
+    CUTOFF_METHOD = DEFAULT_CUTOFF
+    DEFAULT_CUTOFF_VALUE = 0.50
     
+    # used for confusion matrix, presision, recall, f1 scores; not for auc because multiple thresholds are used for determining auc.
+    CLASS_CUTOFF = DEFAULT_CUTOFF_VALUE
+    '''
+        average ='binary':
+        The 'binary' option is only suitable for single-label binary classification (where there are only two classes: 0 and 1) 
+        and requires the pos_label argument to be set.
+        
+        average ='micro':
+        Calculates metrics globally by counting the total true positives (TP), false negatives (FN), and false positives (FP) 
+        across all classes. Recommended when you have class imbalance and want the score to be dominated by the performance on 
+        the most frequent classes (or when the overall per-instance correctness is most important).
+        
+        average ='macro':
+        Calculates metrics for each label (class) independently and then takes the unweighted average. Recommended when you want
+        to treat all labels equally, regardless of how many samples belong to each label. It gives equal importance to rare classes.
+        
+        average ='weighted': 
+        Calculates metrics for each label independently and then takes the average, 
+        weighted by the number of true instances for each label. Recommended when you need an average that is not biased by class 
+        frequency ('micro'), but also want to account for the number of instances each class has (unlike 'macro').
+    '''
+    #The model_check method is used to check the configured metric for stopping the training if there is no significant progress.
+    VALLOSS_CHECK = 0
+    AUC_CHECK = 1
+    AP_CHECK = 2
+    MCC_CHECK = 3
+    CHECK_NAMES = ['VALLOSS_CHECK', 'AUC_CHECK', 'AP_CHECK', 'MCC_CHECK']
+    MODEL_CHECK_POINT_MODE = VALLOSS_CHECK
+    
+    CLASS_AVERAGE = 'weighted'   #binary, micro, macro, weighted
     USE_DELETE_PAD = False      #should we delete the padded part of the y_true and y_pred?
     USE_WEIGHTED_LOSS = False   #should we punish the predictor to compensate for class imbalance?
     LOSS_ONE_WEIGHT = 0.90      #punish the predictor higher if the prediction is wrong at the positions with truth value 1.
@@ -46,18 +83,22 @@ class LossParams:
     @classmethod
     def getLossFunName(cls):
         return cls.NAMES[cls.LOSS_FUN]
+    
+    @classmethod
+    def getCutoffName(cls, cutoffMethod):
+        return cls.CUTOFF_NAMES[cutoffMethod]
         
     @classmethod
     def setLossFun(cls, lossFunParam):
         cls.LOSS_FUN = lossFunParam
     
     @classmethod
-    def getClassThreshold(cls):
-        return cls.CLASS_THRESHOLD
+    def getClassCutoff(cls):
+        return cls.CLASS_CUTOFF
     
     @classmethod
-    def setClassThreshold(cls, classThresholdParam):
-        cls.CLASS_THRESHOLD = classThresholdParam
+    def setClassCutoff(cls, classThresholdParam):
+        cls.CLASS_CUTOFF = classThresholdParam
     
 class PPILossCls(object):
     @classmethod
@@ -68,8 +109,8 @@ class PPILossCls(object):
     @classmethod
     def flattenTargetTensor(cls, y_true, y_pred):
         # (16, 1024, 1)
-        y_true_f = K.flatten(y_true)
-        y_pred_f = K.flatten(y_pred)
+        y_true_f = tf.reshape(y_true, [-1]) #flatten
+        y_pred_f = tf.reshape(y_pred, [-1])
 
         return y_true_f, y_pred_f
     
@@ -91,13 +132,18 @@ class PPILossCls(object):
         #print(type(y_true)) #numpy.ndarray
         # y_true.dtype = float64 (0.0 or 1.0) | y_pred.dtype = float64 (0.12389 or 0.562390)
         #print(y_pred)
-        #y_pred = np.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+        #y_pred = np.clip(y_pred, backend.epsilon(), 1 - backend.epsilon())
         # to overcome: ValueError: Input contains NaN, infinity or a value too large for dtype('float32')
         #col_mean = np.nanmean(y_pred, axis=0)
         #y_pred = np.nan_to_num(y_pred, nan=0.0, copy=True, posinf=1.0, neginf=0.0) # gives other problems
         #y_pred = np.nan_to_num(y_pred, nan=col_mean, copy=True, posinf=col_mean, neginf=col_mean)
         
-        auc = roc_auc_score(y_true, y_pred, average ='weighted')
+        try:
+            auc = roc_auc_score(y_true, y_pred, average ='weighted')
+        except ValueError:
+            auc = 0.0  # Fallback value
+            print("ROC-AUC skipped due to NaNs")
+        #auc = roc_auc_score(y_true, y_pred, average ='weighted')
         
         return auc
     
@@ -109,21 +155,22 @@ class PPILossCls(object):
     
     @classmethod
     def mccMetric(cls, y_true, y_pred):
-        y_pred = y_pred >= LossParams.CLASS_THRESHOLD
+        y_pred = y_pred >= LossParams.CLASS_CUTOFF
         mcc = matthews_corrcoef(y_true, y_pred)
         
         return mcc
     
     @classmethod
     def prfMetric(cls, y_true, y_pred):
-        y_pred = y_pred >= LossParams.CLASS_THRESHOLD
-        presScore, recallScore, f1Score, _  = precision_recall_fscore_support(y_true, y_pred, average ='binary')
+        y_pred = y_pred >= LossParams.CLASS_CUTOFF
+        presScore, recallScore, f1Score, _  = precision_recall_fscore_support(y_true, y_pred, average ='binary', zero_division=1.0)
+        #presScore, recallScore, f1Score, _  = precision_recall_fscore_support(y_true, y_pred, average ='binary')
 
         return presScore, recallScore, f1Score
     
     @classmethod
     def confMetric(cls, y_true, y_pred, testingLabel):
-        y_pred = y_pred >= LossParams.CLASS_THRESHOLD
+        y_pred = y_pred >= LossParams.CLASS_CUTOFF
         # y_true.dtype = float64 (0.0 or 1.0) | y_pred.dtype = bool (False or True)
         confusion  = confusion_matrix(y_true, y_pred)
         logger.info('confusion_matrix: [actual_neg=[TN, FP]; actual_pos=[FN, TP]]')
@@ -142,14 +189,15 @@ class PPILossCls(object):
         print("22222222 %%%%%%%%%%%%%% np.argwhere y_true %%%%%%%%%%%", np.argwhere(np.isnan(y_pred)))
         #'''
         
-        y_pred = y_pred >= LossParams.CLASS_THRESHOLD
+        # Make sure only theshold for binary classification
+        y_pred = y_pred >= LossParams.CLASS_CUTOFF
         acc = accuracy_score(y_true, y_pred)
         #acc = M.binary_accuracy(y_true, y_pred)
         
         return acc
     
     @classmethod
-    def calculateThreshold(cls, y_true, y_pred):
+    def calculateCutoff(cls, y_true, y_pred, logCutoff=False):
         def youdenCutoff(y_true, y_pred):
             # sensitivity (recall) = tpr
             # specificity          = tnr = 1-fpr
@@ -169,7 +217,15 @@ class PPILossCls(object):
             return optimal_threshold
         
         def equalCutoff(y_true, y_pred):
-            # cutoff is calculated based on: number of actual positives == number of predicted positives
+            '''
+            The model is as likely to make a false alarm (predict something positive that isn’t as it is to miss a 
+            real case (fail to predict a positive that exists). In other words: 
+            - Cutoff is calculated based on: number of false positives == number of false negatives.
+            - It’s equally overpredicting and underpredicting positives. 
+            - The model’s error balance between precision and recall is symmetric.
+            - The decision threshold (cut-off) is roughly at the equilibrium point of the Precision–Recall trade-off curve.
+            - The model doesn’t favor “being cautious” (few false positives) or “being sensitive” (few false negatives).
+            '''
             numActualPoses = np.count_nonzero(y_true)
             #print('numActualPoses: ', numActualPoses)
             sortedPreds = np.sort(y_pred)
@@ -185,20 +241,37 @@ class PPILossCls(object):
             fpr, tpr, thresholds = roc_curve(y_true, y_pred)
             i = np.arange(len(tpr)) 
             #print('number of thresholds: ', i)
-            roc = pd.DataFrame({'tf' : pd.Series(tpr-(1-fpr), index=i), 'threshold' : pd.Series(thresholds, index=i)})
+            roc = pd.DataFrame({'tf': tpr - (1 - fpr),'threshold': thresholds})
             #print(roc)
-            roc_t = roc.ix[(roc.tf-0).abs().argsort()[:1]]
+            # Find the threshold where tf (tpr - (1 - fpr)) is closest to 0
+            roc_t = roc.loc[(roc.tf - 0).abs().argsort()[:1]]
             #print('roc_t: ', roc_t)
             cutoffList = list(roc_t['threshold'])
             #print('cutoffList: ', cutoffList)
             cutoff = cutoffList[0]
             return cutoff
         
-        #cutoff = youdenCutoff(y_true, y_pred)
-        #cutoff = simpleCutoff(y_true, y_pred)
-        #cutoff = optimalCutoff(y_true, y_pred) 
-        cutoff = equalCutoff(y_true, y_pred)
-        logger.info('The best cut-off value is: {0:0.2f}'.format(cutoff))
+        def defaultCutoff(y_true, y_pred):
+            return LossParams.DEFAULT_CUTOFF_VALUE
+        
+        #y_true = y_true.ravel()
+        #y_pred = y_pred.ravel()
+        if LossParams.CUTOFF_METHOD == LossParams.DEFAULT_CUTOFF:
+            cutoff = defaultCutoff(y_true, y_pred)
+        elif LossParams.CUTOFF_METHOD == LossParams.SIMPLE_CUTOFF:
+            cutoff = simpleCutoff(y_true, y_pred)
+        elif LossParams.CUTOFF_METHOD == LossParams.YOUDEN_CUTOFF:
+            cutoff = youdenCutoff(y_true, y_pred)
+        elif LossParams.CUTOFF_METHOD == LossParams.EQUAL_CUTOFF:
+            cutoff = equalCutoff(y_true, y_pred)
+        elif LossParams.CUTOFF_METHOD == LossParams.OPTIMAL_CUTOFF:
+            cutoff = optimalCutoff(y_true, y_pred)
+        else:
+            raise ValueError("Unknown cut-off method: {}".format(LossParams.CUTOFF_METHOD))            
+        
+        if logCutoff:
+            logger.info('The cut-off method: {} and best cut-off value is: {:0.2f}'.format(
+                LossParams.getCutoffName(LossParams.CUTOFF_METHOD), cutoff))
         
         return cutoff
     
@@ -214,23 +287,33 @@ class PPILossCls(object):
         else:
             y_true, y_pred = cls.maskPadTargetTensor(y_true, y_pred)
        
-        #specScore = cls.confMetric(y_true, y_pred, DatasetParams.EXPR_DATASET_LABEL)
+        LossParams.CLASS_CUTOFF = cls.calculateCutoff(y_true, y_pred, logCutoff=False)
         valAcc = cls.accMetric(y_true, y_pred)
-        valAuc = cls.aucMetric(y_true, y_pred)
+        valMetric = valLoss
+        valMetricName = 'valLoss'
+        if LossParams.MODEL_CHECK_POINT_MODE == LossParams.AUC_CHECK:
+            valMetric = cls.aucMetric(y_true, y_pred)
+            valMetricName = 'valAUC'
+        elif LossParams.MODEL_CHECK_POINT_MODE == LossParams.AP_CHECK:
+            valMetric = cls.apMetric(y_true, y_pred)
+            valMetricName = 'valAP'
+        elif LossParams.MODEL_CHECK_POINT_MODE == LossParams.MCC_CHECK:
+            valMetric = cls.mccMetric(y_true, y_pred)
+            valMetricName = 'valMCC'
         
         #logger.info("Epoch: {:02d} Loss: {:.4f} valLoss: {:.4f} specScore: {:.2%} AUC: {:.2%}".format(epoch, loss, valLoss, specScore, valAuc))
-        logger.info("Epoch: {:02d} Loss: {:.4f} valLoss: {:.4f} valAcc: {:.2%} AUC: {:.2%}".format(epoch, loss, valLoss, valAcc, valAuc))
+        logger.info("Epoch: {:02d} Loss: {:.4f} valLoss: {:.4f} valAcc: {:.2%} {}: {:.2%}".format(epoch, loss, valLoss, valAcc, valMetricName, valMetric))
         
         if DatasetParams.COMET_EXPERIMENT is not None:
             metrics = {
                 "loss": loss,
                 "val_loss": valLoss,
                 "val_acc": valAcc,
-                "val_auc": valAuc,
+                valMetricName: valMetric,
             }
             DatasetParams.COMET_EXPERIMENT.log_metrics(dic=metrics, epoch=epoch, step=epoch)
         
-        return valAuc
+        return valMetric
     
     @classmethod
     def logTestingMetrics(cls, y_true, y_pred, testingLabel):
@@ -255,8 +338,7 @@ class PPILossCls(object):
         valAp = cls.apMetric(y_true, y_pred)
         
         # Dynamically determine the class threshold.
-        LossParams.CLASS_THRESHOLD = cls.calculateThreshold(y_true, y_pred)
-        #y_pred_bin = y_pred >= LossParams.CLASS_THRESHOLD 
+        LossParams.CLASS_CUTOFF = cls.calculateCutoff(y_true, y_pred, logCutoff=True)
         #print('===========', np.count_nonzero(y_pred_bin))
         
         valAcc = cls.accMetric(y_true, y_pred)
@@ -264,7 +346,7 @@ class PPILossCls(object):
         specScore = cls.confMetric(y_true, y_pred, testingLabel)
         presScore, recallScore, f1Score = cls.prfMetric(y_true, y_pred)
         mccScore = cls.mccMetric(y_true, y_pred)
-        logger.info("ValAcc: {:.2%} specScore: {:.2%} presScore: {:.2%} recallScore: {:.2%} F1Score: {:.2%} MCC: {:.2%} AUC: {:.2%} AP: {:.2%}".format(
+        logger.info("TestAcc: {:.2%} specScore: {:.2%} presScore: {:.2%} recallScore: {:.2%} F1Score: {:.2%} MCC: {:.2%} AUC: {:.2%} AP: {:.2%}".format(
                     valAcc, specScore, presScore, recallScore, f1Score, mccScore, valAuc, valAp))
         
         if DatasetParams.COMET_EXPERIMENT is not None:
@@ -285,8 +367,8 @@ class PPILossCls(object):
     @classmethod
     def jacMetric(cls, y_true, y_pred):
         smooth = 100.0
-        intersection = K.sum(K.abs(y_true * y_pred))
-        union = K.sum(K.abs(y_true) + K.abs(y_pred))
+        intersection = ops.sum(ops.abs(y_true * y_pred))
+        union = ops.sum(ops.abs(y_true) + ops.abs(y_pred))
         jac = (intersection + smooth) / (union - intersection + smooth)
         
         return jac
@@ -301,8 +383,8 @@ class PPILossCls(object):
     @classmethod
     def diceMetric(cls, y_true, y_pred):
         smooth = 1.0
-        intersection = K.sum(K.abs(y_true * y_pred))
-        union = K.sum(K.abs(y_true) + K.abs(y_pred))
+        intersection = ops.sum(ops.abs(y_true * y_pred))
+        union = ops.sum(ops.abs(y_true) + ops.abs(y_pred))
         dice = 2.0 * (intersection + smooth) / (union + smooth)
         
         return dice
@@ -311,7 +393,7 @@ class PPILossCls(object):
     def diceLoss(cls, y_true, y_pred):
         dice = cls.diceMetric(y_true, y_pred) 
         #print(dice)
-        #return K.log(dice)
+        #return backend.log(dice)
         #return dice
         return 1 - dice
     
@@ -324,8 +406,8 @@ class PPILossCls(object):
         beta = 0.2
         smooth = 1e-10
     
-        truepos = K.sum(y_true * y_pred)
-        fp_and_fn = alpha * K.sum(y_pred * (1 - y_true)) + beta * K.sum((1 - y_pred) * y_true)
+        truepos = ops.sum(y_true * y_pred)
+        fp_and_fn = alpha * ops.sum(y_pred * (1 - y_true)) + beta * ops.sum((1 - y_pred) * y_true)
         tversky = (truepos + smooth) / ((truepos + smooth) + fp_and_fn)
         
         return tversky
@@ -368,8 +450,8 @@ class PPILossCls(object):
                 if False and np.count_nonzero(y_true[n,h,:]) != 0:
                     print("trueClassId: ", trueClassId) 
                     print("predClassId: ", predClassId) 
-            flat_tmp_y_true = K.flatten(tmp_y_true)
-            flat_tmp_y_pred = K.flatten(tmp_y_pred)
+            flat_tmp_y_true = tf.reshape(tmp_y_true, [-1])  #flatten
+            flat_tmp_y_pred = tf.reshape(tmp_y_pred, [-1])
             if rem > 0:
                 indx = DatasetParams.MC_RESNET_PAT_LEN - rem
                 flat_tmp_y_true = np.delete(flat_tmp_y_true, np.s_[-indx:])
@@ -414,8 +496,8 @@ class PPILossCls(object):
                     print("predClassId: ", predClassId) 
                     #print("y_true: ", tmp_y_true[h,:])
                     #print("y_pred: ", tmp_y_pred[h,:])
-            flat_tmp_y_true = K.flatten(tmp_y_true)
-            flat_tmp_y_pred = K.flatten(tmp_y_pred)
+            flat_tmp_y_true = tf.reshape(tmp_y_true, [-1])  #flatten
+            flat_tmp_y_pred = tf.reshape(tmp_y_pred, [-1])
             if rem > 0:
                 indx = DatasetParams.ATT_PAT_LEN - rem
                 flat_tmp_y_true = np.delete(flat_tmp_y_true, np.s_[-indx:])
@@ -460,12 +542,12 @@ class PPILossCls(object):
                 for w in range(wd):
                     for b in range(bd):
                         trueClass = yolo_y_true[n,h,w,b,5:]
-                        trueClassId = K.argmax(trueClass)
+                        trueClassId = ops.argmax(trueClass)
                         predClassId = 0
-                        conf = K.sigmoid(yolo_y_pred[n,h,w,b,4])
+                        conf = ops.sigmoid(yolo_y_pred[n,h,w,b,4])
                         if conf > LossParams.YOLO_THRESHOLD:
-                            classProb = K.softmax(yolo_y_pred[n,h,w,b,5:]) * conf
-                            predClassId = K.argmax(classProb)
+                            classProb = ops.softmax(yolo_y_pred[n,h,w,b,5:]) * conf
+                            predClassId = ops.argmax(classProb)
                     
                     y_true[n,h,w,:] = DatasetParams.YOLO_PATTERNS[trueClassId]         
                     y_pred[n,h,w,:] = DatasetParams.YOLO_PATTERNS[predClassId] 
@@ -478,8 +560,8 @@ class PPILossCls(object):
         #labelShape = (nd,) + DatasetParams.LABEL_SHAPE
         #y_true = np.reshape(y_true, labelShape)
         #y_pred = np.reshape(y_pred, labelShape)
-        y_true = K.flatten(y_true)
-        y_pred = K.flatten(y_pred)
+        y_true = tf.reshape(y_true, [-1]) #flatten
+        y_pred = tf.reshape(y_pred, [-1])
         
         return y_true, y_pred
     
@@ -531,7 +613,7 @@ class PPILossCls(object):
         
         iou = tf.truediv(intersect_area, true_box_area + pred_box_area - intersect_area)
         best_box = tf.equal(iou, tf.reduce_max(iou, [3], True)) 
-        best_box = tf.to_float(best_box)
+        best_box = tf.cast(best_box, tf.float32)
         true_box_conf = tf.expand_dims(best_box * y_true[:,:,:,:,4], -1)
         
         # adjust confidence
@@ -595,7 +677,7 @@ class PPILossCls(object):
     
     @classmethod
     def deletePadding(cls, y_true, y_pred):
-        mask = K.not_equal(y_true, DatasetParams.LABEL_PAD_CONST)
+        mask = ops.not_equal(y_true, DatasetParams.LABEL_PAD_CONST)
         y_true = tf.boolean_mask(y_true, mask)
         y_pred = tf.boolean_mask(y_pred, mask)
         return y_true,y_pred
@@ -607,25 +689,25 @@ class PPILossCls(object):
         hetro=F1Score: 18.13% MCC: 9.65% AUC: 64.88% vs. F1Score: 17.80% MCC: 9.29% AUC: 63.47%  (Keras vs. own)
         """
         if LossParams.USE_KERAS_ENTROPY:
-            loss = K.binary_crossentropy(y_true, y_pred)
+            loss = BinaryCrossentropy(y_true, y_pred)
         else:
-            loss = y_true * (-K.log(y_pred)) + (1 - y_true) * (-K.log(1 - y_pred))
+            loss = y_true * (-ops.log(y_pred)) + (1 - y_true) * (-ops.log(1 - y_pred))
         
         if LossParams.USE_WEIGHTED_LOSS:
             lossWeights = (y_true * LossParams.LOSS_ONE_WEIGHT) + (1.0 - y_true) * LossParams.LOSS_ZERO_WEIGHT
             loss = loss * lossWeights
-        bce = K.mean(loss)
+        bce = ops.mean(loss)
         
         return bce
     
     @classmethod
     def meanSquaredLoss(cls, y_true, y_pred):
-        loss = K.square(tf.math.subtract(y_true, y_pred))
+        loss = ops.square(tf.math.subtract(y_true, y_pred))
         #loss = L.MeanSquaredError(y_true, y_pred)
         if LossParams.USE_WEIGHTED_LOSS:
             lossWeights = (y_true * LossParams.LOSS_ONE_WEIGHT) + (1.0 - y_true) * LossParams.LOSS_ZERO_WEIGHT
             loss = loss * lossWeights
-        mse = K.mean(loss)
+        mse = ops.mean(loss)
         
         return mse
     

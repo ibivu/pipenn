@@ -2,9 +2,7 @@
 from comet_ml import Experiment
 
 import random
-import datetime
-import time
-import math
+import math, os, time, datetime, random
 import inspect, re
 import json
 import joblib
@@ -17,15 +15,15 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 import xgboost as xgb
 
 import tensorflow as tf
-#import tensorflow.compat.v1 as tf
-
-from tensorflow.keras.initializers import GlorotUniform
-from tensorflow.keras.layers import ReLU, PReLU, Flatten
-from tensorflow.keras.optimizers import Adam, SGD, RMSprop
-from tensorflow.keras.models import load_model, Model
-from tensorflow.keras.utils import plot_model, Sequence
-from tensorflow.keras import backend as K
-from tensorflow.keras.callbacks import Callback, EarlyStopping, ModelCheckpoint, TensorBoard, ReduceLROnPlateau, LearningRateScheduler
+from keras.initializers import GlorotUniform
+from keras.layers import BatchNormalization
+from keras.layers import ReLU, PReLU, Flatten
+from keras.optimizers import Adam, SGD, RMSprop, AdamW
+from keras.models import load_model, Model
+from keras.utils import plot_model, Sequence
+#from keras import backend as K
+from keras import backend
+from keras.callbacks import Callback, EarlyStopping, ModelCheckpoint, TensorBoard, ReduceLROnPlateau, LearningRateScheduler
 
 from treelib import Tree, Node
 
@@ -39,6 +37,8 @@ SEED_VAL = 50 #7
 #tf.set_random_seed(SEED_VAL)
 tf.random.set_seed(SEED_VAL)
 np.random.seed(SEED_VAL)
+random.seed(SEED_VAL)
+
 # we need to include these statements because of a bug in cuda-module for RTX gpus. There is no issue with GTX gpus.
 """
 gpu_devices = tf.config.experimental.list_physical_devices('GPU') 
@@ -46,13 +46,14 @@ for device in gpu_devices:
     tf.config.experimental.set_memory_growth(device, True)
 """
 def doesTFUseGPU():
-    if tf.test.gpu_device_name():
-        print('###### Default GPU Device:{}'.format(tf.test.gpu_device_name()))
-        print("###### Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        print(f"###### Num GPUs Available: {len(gpus)}")
+        print(f"###### GPU Devices: {gpus}")
         return True
     else:
         print("$$$$$$ Info: No GPU version of TF is used.")
-    return False 
+        return False
 
 def limitgpu(maxmem):
     gpus = tf.config.list_physical_devices('GPU')
@@ -87,6 +88,9 @@ class MyPReLU(PReLU):
         self.built = True
 
 class TrainingParams(object):
+    DISK_CACHE_DIR = "pipenn_disk_cache"
+    CACHE_PERCENT = 0.30
+    USE_LAZY_TRAINING = False
     ENS_XGBOOST_MODEL = False
     ENS_DIRICHLET_MODEL = False
     ENS_RF_MODEL = False
@@ -122,16 +126,18 @@ class TrainingParams(object):
     ADAM_OPT = 0
     SGD_OPT = 1
     RMS_OPT = 2
-    OPT_NAMES = ['ADAM', 'SGD', 'RMS']
+    ADAMW_OPT = 3
+    OPT_NAMES = ['ADAM', 'SGD', 'RMS', 'ADAMW']
     OPT_FUN = ADAM_OPT
     
-    #GlorotUniform, GlorotNormal, he_uniform, he_normal, lecun_uniform, lecun_normal, Orthogonal, TruncatedNormal, VarianceScalings
     KERNAL_INITIALIZER = GlorotUniform
     #ReLU, LeakyReLU, PReLU, ELU
     ACTIVATION_FUN = ReLU
+    NORMALIZATION_FUN = BatchNormalization
     USE_BIAS = True
-    MODEL_CHECK_POINT_MODE = -1   # 1 for max-mode (val_auc) and -1 for min-mode (val_loss)
-    EARLY_STOP_PATIENCE = 80
+    
+    #MODEL_CHECK_POINT_MODE = -1   # 1 for max-mode (val_auc) and -1 for min-mode (val_loss)
+    EARLY_STOP_PATIENCE = 40
     USE_CLASS_WEIGHT = False
     USE_EARLY_STOPPING = False
     USE_REDUCE_LR = False
@@ -156,7 +162,7 @@ class TrainingParams(object):
     @classmethod
     def initKeras(cls, floatType):
         DatasetParams.FLOAT_TYPE = floatType
-        K.set_floatx(floatType)
+        backend.set_floatx(floatType)
         return
     
     @classmethod
@@ -194,10 +200,10 @@ class TrainingParams(object):
     def getUserDSModelFile(cls):
         modelDir = DatasetParams.PIPENN_HOME + 'models/all-models/'
         userDSModelDirDict = {
-            'UserDS_P': modelDir + 'biolip-p/',
-            'UserDS_S': modelDir + 'biolip-s/',
-            'UserDS_N': modelDir + 'biolip-n/',
-            'UserDS_A': modelDir + 'biolip-a/',
+            'UserDS_P': modelDir + 'p-to-p/',
+            'UserDS_S': modelDir + 'p-to-s/',
+            'UserDS_N': modelDir + 'p-to-n/',
+            'UserDS_E': modelDir + 'p-to-e/',
         }
         return userDSModelDirDict.get(DatasetParams.EXPR_DATASET_LABEL)
     
@@ -305,7 +311,7 @@ class ModelCheckPointAtMaxAuc(Callback):
         super(ModelCheckPointAtMaxAuc, self).__init__()
         
         self.valX, self.valY = None, None
-        if TrainingParams.MODEL_CHECK_POINT_MODE == -1:
+        if LossParams.MODEL_CHECK_POINT_MODE == LossParams.VALLOSS_CHECK:
             self.minDelta = 0.005
         else:
             self.minDelta = 0.001
@@ -316,16 +322,19 @@ class ModelCheckPointAtMaxAuc(Callback):
     
     def setValset(self, valX, valY):
         self.valX, self.valY = valX, valY   
+        #print('0000 self.valX.shape: ', self.valX.shape)
         return
         
     def on_train_begin(self, logs=None):
         self.wait = 0               # The number of epoch it has waited when auc is no longer max.
         self.stoppedEpoch = 0       # The epoch the training stops at.
         
-        if TrainingParams.MODEL_CHECK_POINT_MODE == -1:
-            self.bestAuc = np.inf
+        if LossParams.MODEL_CHECK_POINT_MODE == LossParams.VALLOSS_CHECK:
+            self.bestMetric = np.inf
         else:
-            self.bestAuc = np.NINF
+            # Deprecated in new version of numpy (2.0), use -np.inf instead.
+            #self.bestMetric = np.NINF
+            self.bestMetric = -np.inf
         return
     
     #def on_batch_begin(self, batch, logs={}):
@@ -347,24 +356,37 @@ class ModelCheckPointAtMaxAuc(Callback):
     #    return
     
     def on_epoch_end(self, epoch, logs=None):
-        loss = logs.get('loss')
-        valLoss = logs.get('val_loss')
-        #print('0000000 keras-auc: ', logs.get('val_auc'))
-        #valLoss = 0.0
-        y_true, y_pred = PPITrainTestCls.doEvaluation(self.model, self.valX, self.valY)
+        import gc, sys
         
+        loss = logs.get('loss')
+        # if we use validation_data in model.fit then keras has already evaluted the val_loss for us. Otherwise, 
+        # we need to evaluate the val_loss ourselves.
+        valLoss = logs.get('val_loss')
+        #print('1111111 keras-valLoss: ', valLoss)
+        if valLoss is None:
+            valLoss = self.model.evaluate(self.valX, self.valY, verbose=TrainingParams.VERBOSE_INDICATOR) 
+        #print('2222222 self.valX.shape: ', self.valX.shape)
+        y_true, y_pred = PPITrainTestCls.doEvaluation(self.model, self.valX, self.valY)
+        #print("y_true.shape: ", y_true.shape, " | y_pred.shape: ", y_pred.shape)
+        currentMetric = PPILossCls.logTrainingMetrics(epoch, loss, valLoss, y_true, y_pred)
+        '''
         try:
-            currentAuc = PPILossCls.logTrainingMetrics(epoch, loss, valLoss, y_true, y_pred)
+            print("y_true.shape: ", y_true.shape, " | y_pred.shape: ", y_pred.shape)
+            #currentMetric = PPILossCls.logTrainingMetrics(epoch, loss, valLoss, y_true, y_pred)
         except Exception as e: #in case of problems regarding gradient explosion (NaNs, Infs) we stop the training.
             self.model.stop_training = True
             logger.warn("### Stopping the training because of an exception (Nan/Inf)." + "\nException was: " + str(e))
+            sys.exit("Error: Stopping the training because of an exception.")
             return
-            
-        if TrainingParams.MODEL_CHECK_POINT_MODE == -1:
-            currentAuc = valLoss
-        if TrainingParams.MODEL_CHECK_POINT_MODE * (currentAuc - self.bestAuc) > self.minDelta:
-            #print('============== BestAuc changed: ', currentAuc, ' diff: ', currentAuc - self.bestAuc)
-            self.bestAuc = currentAuc
+        '''
+        
+        deltaSign = 1
+        if LossParams.MODEL_CHECK_POINT_MODE == LossParams.VALLOSS_CHECK:
+            currentMetric = valLoss
+            deltaSign = -1
+        if deltaSign * (currentMetric - self.bestMetric) > self.minDelta:
+            #print('============== BestAuc changed: ', currentMetric, ' diff: ', currentMetric - self.bestMetric)
+            self.bestMetric = currentMetric
             self.wait = 0
             self.bestWeights = self.model.get_weights() # Record the best weights if current results is better (more).
             self.bestEpoch = epoch
@@ -374,11 +396,12 @@ class ModelCheckPointAtMaxAuc(Callback):
                 self.stoppedEpoch = epoch
                 self.model.stop_training = True
                 #print('Epoch %05d: early stopping' % (self.stoppedEpoch + 1))
+        gc.collect()
         return
     
     def on_train_end(self, logs=None):
         #print('Restoring model weights from the best epoch.')
-        logger.info("Restoring model weights from the best epoch: {:02d} with the best VAL_AUC: {:.2%}".format(self.bestEpoch,self.bestAuc))
+        logger.info("Restoring model weights from the best epoch: {:02d} with the best VAL_AUC: {:.2%}".format(self.bestEpoch,self.bestMetric))
         self.model.set_weights(self.bestWeights)
         self.model.save(TrainingParams.MODEL_SAVE_FILE)
         return
@@ -486,6 +509,9 @@ class PPITrainTestCls(object):
                                 #clipvalue=0.5,
                                 #clipnorm=1.0,
                                 epsilon=TrainingParams.EPSILON_RATE)
+        elif TrainingParams.OPT_FUN == TrainingParams.ADAMW_OPT:
+            theOptimizer = AdamW(learning_rate=TrainingParams.LEARNING_RATE, beta_1=TrainingParams.DECAY_RATE1, beta_2=TrainingParams.DECAY_RATE2, 
+                                epsilon=TrainingParams.EPSILON_RATE)
         elif TrainingParams.OPT_FUN == TrainingParams.SGD_OPT:
             #theOptimizer = SGD(TrainingParams.LEARNING_RATE)
             pass
@@ -500,8 +526,8 @@ class PPITrainTestCls(object):
         return model
     
     @classmethod
-    def getClassWeights(cls, trainingLabels):
-        classWeights = dict(pd.Series(K.flatten(trainingLabels)).value_counts())
+    def getClassWeights(cls, trainingLabels): 
+        classWeights = dict(pd.Series(tf.reshape(trainingLabels, [-1])).value_counts())
         # Number of 0's in the target set
         zeroClassCount = classWeights[0]
         #print('zzzzzzzz: ', zeroClassCount)
@@ -691,7 +717,343 @@ class PPITrainTestCls(object):
         
         # inputY=[...END] without START
         inputY = inputY[:, 1:, :]
-        return inputX, inputY
+        return inputX, inputY    
+    
+    @classmethod
+    def doLazyDaskTraining(cls, model, csvDaskIter, numProts):
+        def getTrainStepsPerEpoc():
+            allSampleSize = numProts
+            #allSampleSize = 17 #just meant for testing epitope short training data set.
+            trainRate = 1.0 - DatasetParams.VALIDATION_RATE
+            allTrainSampleSize = int(allSampleSize * trainRate)
+            trainStepsPerEpoc = int(np.ceil(allTrainSampleSize / TrainingParams.BATCH_SIZE))
+            return trainStepsPerEpoc
+        
+        def getTrainChunk(csvChunk):
+            inputShape = TrainingParams.INPUT_SHAPE
+            labelShape = TrainingParams.LABEL_SHAPE
+            chunkDataset = csvChunk.compute()
+            trainX, valX, trainY, valY = PPIDatasetCls.makeLazyDaskDataset(chunkDataset, inputShape, labelShape, training=True)
+            #print('### trainX.shape: ', trainX.shape, ' | trainY.shape: ', trainY.shape)
+            return trainX, valX, trainY, valY
+            
+        def getTrainBatch(idx, trainX, trainY):
+            startIdx = idx * TrainingParams.BATCH_SIZE
+            endIdx = startIdx + TrainingParams.BATCH_SIZE
+            trainXBatch = trainX[startIdx:endIdx]
+            trainYBatch = trainY[startIdx:endIdx]
+            #print('### trainXBatch.shape: ', trainXBatch.shape, ' | trainYBatch.shape: ', trainYBatch.shape)
+            return trainXBatch, trainYBatch
+        
+        def getTotalVals(valX, valY, totalValX, totalValY):
+            if totalValX is None:
+                totalValX, totalValY = valX, valY
+            else:
+                totalValX = np.concatenate([totalValX, valX], axis=0)
+                totalValY = np.concatenate([totalValY, valY], axis=0)
+            return totalValX, totalValY
+            
+        def makeLazyTFDataset(csvDaskIter):
+            from cachetools import LRUCache
+            import pickle
+            
+            def trainDSGenerator():
+                os.makedirs(TrainingParams.DISK_CACHE_DIR, exist_ok=True)
+                numChunks = len(csvDaskIter)
+                memCacheSize = max(1, math.floor(TrainingParams.CACHE_PERCENT * numChunks))
+                diskCacheSize = numChunks - memCacheSize
+                print('### Number of chunks: ', numChunks, ' | memCacheSize: ', memCacheSize, ' | diskCacheSize: ', diskCacheSize, ' | batchSize: ', TrainingParams.BATCH_SIZE)
+                memCache = LRUCache(maxsize=memCacheSize)
+                while True:
+                    totalValX, totalValY = None, None
+                    for cacheKey, csvChunk in enumerate(csvDaskIter): 
+                        if cacheKey < memCacheSize:
+                            if cacheKey in memCache:
+                                (trainX, valX, trainY, valY) = memCache[cacheKey]
+                            else:
+                                trainX, valX, trainY, valY = getTrainChunk(csvChunk)
+                                memCache[cacheKey] = (trainX, valX, trainY, valY)
+                        else:
+                            diskPath = os.path.join(TrainingParams.DISK_CACHE_DIR, f"chunk_{cacheKey}.pkl")
+                            if os.path.exists(diskPath):
+                                with open(diskPath, 'rb') as f:
+                                    (trainX, valX, trainY, valY) = pickle.load(f)
+                            else:
+                                trainX, valX, trainY, valY = getTrainChunk(csvChunk)
+                                with open(diskPath, 'wb') as f:
+                                    pickle.dump((trainX, valX, trainY, valY), f, pickle.HIGHEST_PROTOCOL)
+                            
+                        #print('%%%%%%%%%%%%%%%%%%% cacheKey: ', cacheKey)
+                        # This statement must be here, because tensorflow calls model.evaluate() before executing the last statement
+                        # of the "while True" loop and after the last "yield". So, if totalValX and totalValY not yet set, then we get
+                        # an error message that they are empty (None). All this happen because of parallelism in the training.   
+                        totalValX, totalValY = getTotalVals(valX, valY, totalValX, totalValY)
+                        #print('### totalValX.shape: ', totalValX.shape, ' | totalValY.shape: ', totalValY.shape)
+                        mcAtMaxAucCallBack.setValset(totalValX, totalValY)
+                            
+                        numBatchesPerChunk = int(np.ceil(len(trainX) / TrainingParams.BATCH_SIZE))
+                        for i in range(numBatchesPerChunk):
+                            trainXBatch, trainYBatch = getTrainBatch(i, trainX, trainY)
+                            yield trainXBatch, trainYBatch
+                        
+            tfTrainDS = trainDSGenerator()
+            return tfTrainDS
+        
+        trainStepsPerEpoc = getTrainStepsPerEpoc()
+        train_dataset = makeLazyTFDataset(csvDaskIter)
+        
+        mcAtMaxAucCallBack = ModelCheckPointAtMaxAuc()
+        callBackOps = [mcAtMaxAucCallBack]   
+        classWeight = None  
+        trainingStartTime = time.time() 
+        model.fit(x=train_dataset,
+                  steps_per_epoch=trainStepsPerEpoc, 
+                  epochs=TrainingParams.NUM_EPOCS,
+                  shuffle=not LossParams.USE_WEIGHTED_LOSS,
+                  callbacks=callBackOps, verbose=TrainingParams.VERBOSE_INDICATOR, class_weight=classWeight)   
+        trainingEndTime = time.time()
+        TrainingParams.TRAIN_DURATION = str(datetime.timedelta(seconds=trainingEndTime-trainingStartTime))
+        logger.info("Training time: {}".format(TrainingParams.TRAIN_DURATION))  
+        return 
+    
+    @classmethod
+    def doLazyDaskTraining23(cls, model, csvDaskIter, numProts):
+        def makeLazyTFDataset(csvDaskIter):
+            def trainDSGenerator():
+                nonlocal totalValX, totalValY
+                #csvDaskIter = csvDdf.to_delayed()  # Convert CSV to delayed
+                #print('### csvDaskIter: ', len(csvDaskIter), ' //', csvDaskIter[0])
+                print('### Number of chunks: ', len(csvDaskIter))
+                for csvChunk in csvDaskIter:
+                    chunkDataset = csvChunk.compute()
+                    trainX, valX, trainY, valY = PPIDatasetCls.makeLazyDaskDataset(chunkDataset, inputShape, labelShape, training=True)
+                    #print('### trainX.shape: ', trainX.shape, ' | trainY.shape: ', trainY.shape)
+                    if totalValX is None:
+                        totalValX, totalValY = valX, valY
+                    else:
+                        totalValX = np.concatenate([totalValX, valX], axis=0)
+                        totalValY = np.concatenate([totalValY, valY], axis=0)
+                    numBatchesPerChunk = int(np.ceil(len(trainX) / TrainingParams.BATCH_SIZE))
+                    for i in range(numBatchesPerChunk):
+                        startIdx = i * TrainingParams.BATCH_SIZE
+                        endIdx = startIdx + TrainingParams.BATCH_SIZE
+                        trainXBatch = trainX[startIdx:endIdx]
+                        trainYBatch = trainY[startIdx:endIdx]
+                        #print('### trainXBatch.shape: ', trainXBatch.shape, ' | trainYBatch.shape: ', trainYBatch.shape)
+                        yield trainXBatch, trainYBatch
+                mcAtMaxAucCallBack.setValset(totalValX, totalValY)
+                totalValX, totalValY = None, None
+                    
+            inputShape = TrainingParams.INPUT_SHAPE
+            labelShape = TrainingParams.LABEL_SHAPE
+            tfSig = (
+                tf.TensorSpec(shape=(None,)+inputShape, dtype=tf.float32),
+                tf.TensorSpec(shape=(None,)+labelShape, dtype=tf.float32),
+            )
+            tfTrainDS = tf.data.Dataset.from_generator(lambda: trainDSGenerator(), output_signature=tfSig)
+            cacheSize = numProts // 3
+            cacheFile = "tf_pipenn_cache"
+            #tfTrainDS = tfTrainDS.cache(cacheFile)
+            tfTrainDS = tfTrainDS.take(cacheSize).cache()
+            tfTrainDS = tfTrainDS.prefetch(tf.data.AUTOTUNE)
+            
+            #tfTrainDSMemCache = tfTrainDS.take(cacheSize).cache()
+            #tfTrainDSDiskCache = tfTrainDS.skip(numProts-cacheSize).cache(cacheFile)
+            #tfTrainDS = tfTrainDSMemCache.concatenate(tfTrainDSDiskCache)
+
+            #tfTrainDS = tfTrainDS.window(windowSize).flat_map(lambda window: window.batch(windowSize))
+            #tfTrainDS = tfTrainDS.cache().prefetch(bufferSize)
+            #tfTrainDS = tfTrainDS.prefetch(bufferSize)
+            #tfTrainDS = tfTrainDS.prefetch(tf.data.AUTOTUNE)
+            #tfTrainDS = tfTrainDS.cache().prefetch(tf.data.AUTOTUNE)
+            
+            #tfTrainDS = tfTrainDS.cache("./training.cache").prefetch(tf.data.AUTOTUNE)
+            #tfTrainDS = tfTrainDS.take(DatasetParams.CHUNK_SIZE).cache().prefetch(tf.data.AUTOTUNE)
+            # We still get memory problem if cache is used.
+            #tfTrainDS = tfTrainDS.cache().prefetch(tf.data.AUTOTUNE)
+            # for Tf-2.18
+            #tfTrainDS = tfTrainDS.cache().repeat().prefetch(tf.data.AUTOTUNE)
+            return tfTrainDS
+        
+        totalValX, totalValY = None, None
+        train_dataset = makeLazyTFDataset(csvDaskIter)
+        
+        mcAtMaxAucCallBack = ModelCheckPointAtMaxAuc()
+        callBackOps = [mcAtMaxAucCallBack]   
+        classWeight = None  
+        trainingStartTime = time.time() 
+        model.fit(x=train_dataset, 
+            epochs=TrainingParams.NUM_EPOCS,
+            #validation_freq = 3, # every 2nd epoc. No impact because we do custom validation.
+            shuffle=not LossParams.USE_WEIGHTED_LOSS,
+            callbacks=callBackOps, verbose=TrainingParams.VERBOSE_INDICATOR, class_weight=classWeight)   
+        #'''
+        trainingEndTime = time.time()
+        TrainingParams.TRAIN_DURATION = str(datetime.timedelta(seconds=trainingEndTime-trainingStartTime))
+        logger.info("Training time: {}".format(TrainingParams.TRAIN_DURATION))  
+        return 
+    
+    @classmethod
+    def doLazyDaskTraining3(cls, model, csvDdf, numProts):
+        def makeLazyTFDataset(csvDdf):
+            def trainDSGenerator():
+                nonlocal totalValX, totalValY
+                csvDaskIter = csvDdf.to_delayed()  # Convert CSV to delayed
+                #print('### csvDaskIter: ', len(csvDaskIter), ' //', csvDaskIter[0])
+                print('### Number of chunks: ', len(csvDaskIter))
+                for csvChunk in csvDaskIter:
+                    chunkDataset = csvChunk.compute()
+                    trainX, valX, trainY, valY = PPIDatasetCls.makeLazyDaskDataset(chunkDataset, inputShape, labelShape, training=True)
+                    #print('### trainX.shape: ', trainX.shape, ' | trainY.shape: ', trainY.shape)
+                    if totalValX is None:
+                        totalValX, totalValY = valX, valY
+                    else:
+                        totalValX = np.concatenate([totalValX, valX], axis=0)
+                        totalValY = np.concatenate([totalValY, valY], axis=0)
+                    numBatchesPerChunk = int(np.ceil(len(trainX) / TrainingParams.BATCH_SIZE))
+                    for i in range(numBatchesPerChunk):
+                        startIdx = i * TrainingParams.BATCH_SIZE
+                        endIdx = startIdx + TrainingParams.BATCH_SIZE
+                        trainXBatch = trainX[startIdx:endIdx]
+                        trainYBatch = trainY[startIdx:endIdx]
+                        #print('### trainXBatch.shape: ', trainXBatch.shape, ' | trainYBatch.shape: ', trainYBatch.shape)
+                        yield trainXBatch, trainYBatch
+                mcAtMaxAucCallBack.setValset(totalValX, totalValY)
+                totalValX, totalValY = None, None
+                    
+            inputShape = TrainingParams.INPUT_SHAPE
+            labelShape = TrainingParams.LABEL_SHAPE
+            tfSig = (
+                tf.TensorSpec(shape=(None,)+inputShape, dtype=tf.float32),
+                tf.TensorSpec(shape=(None,)+labelShape, dtype=tf.float32),
+            )
+            tfTrainDS = tf.data.Dataset.from_generator(lambda: trainDSGenerator(), output_signature=tfSig)
+            #windowSize = 3 * DatasetParams.CHUNK_SIZE
+            bufferSize = 5 * DatasetParams.CHUNK_SIZE
+            #tfTrainDS = tfTrainDS.window(windowSize).flat_map(lambda window: window.batch(windowSize))
+            #tfTrainDS = tfTrainDS.cache().prefetch(bufferSize)
+            tfTrainDS = tfTrainDS.prefetch(bufferSize)
+            #tfTrainDS = tfTrainDS.prefetch(tf.data.AUTOTUNE)
+            #tfTrainDS = tfTrainDS.cache().prefetch(tf.data.AUTOTUNE)
+            
+            #tfTrainDS = tfTrainDS.cache("./training.cache").prefetch(tf.data.AUTOTUNE)
+            #tfTrainDS = tfTrainDS.take(DatasetParams.CHUNK_SIZE).cache().prefetch(tf.data.AUTOTUNE)
+            # We still get memory problem if cache is used.
+            #tfTrainDS = tfTrainDS.cache().prefetch(tf.data.AUTOTUNE)
+            # for Tf-2.18
+            #tfTrainDS = tfTrainDS.cache().repeat().prefetch(tf.data.AUTOTUNE)
+            return tfTrainDS
+        
+        totalValX, totalValY = None, None
+        train_dataset = makeLazyTFDataset(csvDdf)
+        
+        mcAtMaxAucCallBack = ModelCheckPointAtMaxAuc()
+        callBackOps = [mcAtMaxAucCallBack]   
+        classWeight = None  
+        trainingStartTime = time.time() 
+        model.fit(x=train_dataset, 
+            epochs=TrainingParams.NUM_EPOCS,
+            #validation_freq = 3, # every 2nd epoc. No impact because we do custom validation.
+            shuffle=not LossParams.USE_WEIGHTED_LOSS,
+            callbacks=callBackOps, verbose=TrainingParams.VERBOSE_INDICATOR, class_weight=classWeight)   
+        #'''
+        trainingEndTime = time.time()
+        TrainingParams.TRAIN_DURATION = str(datetime.timedelta(seconds=trainingEndTime-trainingStartTime))
+        logger.info("Training time: {}".format(TrainingParams.TRAIN_DURATION))  
+        return 
+    
+    
+    @classmethod
+    def doLazyTraining(cls, model, trainReader):
+        def trainDSGenerator():   
+            reader = trainReader
+            valCompleted = False
+            while True:
+                #print('^^^ trainDSGenrator called ^^^')
+                nonlocal totalValX, totalValY
+                for chunk in reader: 
+                    #print('%%% new chunk called %%%')
+                    trainX, valX, trainY, valY = PPIDatasetCls.makeLazyDataset(chunk, TrainingParams.INPUT_SHAPE, TrainingParams.LABEL_SHAPE, True)
+                    if totalValX is None:
+                        totalValX, totalValY = valX, valY
+                    elif not valCompleted:
+                        totalValX = np.concatenate([totalValX, valX], axis=0)
+                        totalValY = np.concatenate([totalValY, valY], axis=0)
+                    #yield trainX, trainY
+                    #print('### trainDSGenerator called after yield')
+                    # length of trainX is the same as a chunk.
+                    #'''
+                    numBatchesPerChunk = int(np.ceil(len(trainX) / TrainingParams.BATCH_SIZE))
+                    for i in range(numBatchesPerChunk):
+                        startIdx = i * TrainingParams.BATCH_SIZE
+                        endIdx = startIdx + TrainingParams.BATCH_SIZE
+                        trainXBatch = trainX[startIdx:endIdx]
+                        trainYBatch = trainY[startIdx:endIdx]
+                        yield trainXBatch, trainYBatch
+                        #print('### trainDSGenerator called after yield')
+                    #'''
+                if not valCompleted:
+                    mcAtMaxAucCallBack.setValset(totalValX, totalValY)
+                #print('\n!!! LazyReader called !!!')
+                valCompleted = True
+                reader = PPIDatasetCls.makeLazyReader(DatasetParams.EXPR_TRAINING_FILE)
+                  
+        def valDSGenerator():   
+            while True:
+                print('\n%%% valDSGenrator called %%%')
+                nonlocal totalValX, totalValY
+                mcAtMaxAucCallBack.setValset(totalValX, totalValY)
+                yield totalValX, totalValY
+            
+        totalValX, totalValY = None, None
+        allProtIds = list(PPIDatasetCls.allProtbertDictionary.keys())
+        allSampleSize = len(allProtIds)
+        #allSampleSize = 17 #just meant for testing epitope short training data set.
+        trainRate = 1.0 - DatasetParams.VALIDATION_RATE
+        allTrainSampleSize = int(allSampleSize * trainRate)
+        trainStepsPerEpoc = int(np.ceil(allTrainSampleSize / TrainingParams.BATCH_SIZE))
+        #allValSampleSize = allSampleSize - allTrainSampleSize
+        #valStepsPerEpoc = int(np.ceil(allValSampleSize / TrainingParams.BATCH_SIZE))
+        #print('### trainStepsPerEpoc: ', trainStepsPerEpoc, ' | valStepsPerEpoc: ', valStepsPerEpoc)
+        mcAtMaxAucCallBack = ModelCheckPointAtMaxAuc()
+        callBackOps = [mcAtMaxAucCallBack]   
+        classWeight = None  
+        trainingStartTime = time.time()    
+        '''
+        inputShape = (None, 1170, 1025)
+        labelShape = (None, 1170, 1)
+        #inputShape = (1170, 1025)
+        #labelShape = (1170, 1)
+        output_signature = (
+            #tf.TensorSpec(shape=TrainingParams.INPUT_SHAPE, dtype=tf.float32),
+            #tf.TensorSpec(shape=(None,)+TrainingParams.LABEL_SHAPE, dtype=tf.float32)
+            tf.TensorSpec(shape=inputShape, dtype=tf.float32),
+            tf.TensorSpec(shape=labelShape, dtype=tf.float32),
+        )    
+        trainDS = tf.data.Dataset.from_generator(trainDSGenerator, output_signature=output_signature)#.\
+                #batch(TrainingParams.BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        valDS = tf.data.Dataset.from_generator(valDSGenerator, output_signature=output_signature)#.\
+                #batch(TrainingParams.BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        model.fit(x=trainDS, 
+            steps_per_epoch=trainStepsPerEpoc, 
+            epochs=TrainingParams.NUM_EPOCS,
+            shuffle=not LossParams.USE_WEIGHTED_LOSS,
+            validation_data=valDS, 
+            validation_steps=valStepsPerEpoc,
+            callbacks=callBackOps, verbose=TrainingParams.VERBOSE_INDICATOR, class_weight=classWeight)   
+        '''
+        model.fit(x=trainDSGenerator(), 
+            steps_per_epoch=trainStepsPerEpoc, 
+            epochs=TrainingParams.NUM_EPOCS,
+            shuffle=not LossParams.USE_WEIGHTED_LOSS,
+            #validation_data=valDSGenerator(), 
+            #validation_steps=1, #valStepsPerEpoc, 
+            callbacks=callBackOps, verbose=TrainingParams.VERBOSE_INDICATOR, class_weight=classWeight)   
+        #'''
+        trainingEndTime = time.time()
+        TrainingParams.TRAIN_DURATION = str(datetime.timedelta(seconds=trainingEndTime-trainingStartTime))
+        logger.info("Training time: {}".format(TrainingParams.TRAIN_DURATION)) 
+        return 
     
     @classmethod
     def doTraining(cls, model, trainX, valX, trainY, valY):
@@ -775,7 +1137,7 @@ class PPITrainTestCls(object):
             #print('trainX[].shape', trainX[0].shape)
             #print('trainX[]', trainX[0])
             #print('trainY[]', trainY[0])
-            #model.fit_generator(generator=varLenFitGenerator(trainX, trainY), steps_per_epoch=len(trainX),
+            #model.fit_generator(trainDSGenerator=varLenFitGenerator(trainX, trainY), steps_per_epoch=len(trainX),
                                 #epochs=TrainingParams.NUM_EPOCS, shuffle=not LossParams.USE_WEIGHTED_LOSS,
                                 #epochs=TrainingParams.NUM_EPOCS, shuffle=False,
                                 #validation_data=varLenFitGenerator(valX, valY), validation_steps=len(valX),
@@ -864,7 +1226,7 @@ class PPITrainTestCls(object):
         #predFile = TrainingParams.MODEL_PRED_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
         predFile = TrainingParams.MODEL_PRED_FILE.format(testingLabel)
         dataset = pd.DataFrame(predData, columns=PPIPredPlotCls.PRED_COLUMNS)
-        print("\n## Generating pred-data for @@: " + predFile + " @@")
+        print("## Generating pred-data for @@: " + predFile + " @@")
         dataset.to_csv(predFile, index=False) 
         return 
     
@@ -896,13 +1258,18 @@ class PPITrainTestCls(object):
             ##getMetrics expects 'list of flat_y_trues and y_preds'. So we must pack them in lists.
             prot_y_trues = [all_y_trues[starti:starti+protLen]]
             prot_y_preds = [all_y_preds[starti:starti+protLen]]
-            scoreDataDicts, curveDataDict = PPIPredMericsCls.getMetrics(prot_y_trues, prot_y_preds)
-            allMetricsData.append(consProtMetricsData())
+            try:
+                scoreDataDicts, curveDataDict = PPIPredMericsCls.getMetrics(prot_y_trues, prot_y_preds)
+                allMetricsData.append(consProtMetricsData())
+            except Exception as e:
+                # So we can detect which protein's ground-truth values do only contains zero's (no interface). In this
+                # it's a bug in the dataset.
+                print(f"@@@@@@@@@####### Error at prot-id={protIds[proti]}, protLen={protLen}")
             starti = starti + protLen
             
-        metricsFile = TrainingParams.METRICS_PER_PROT_FILE.format(TrainingParams.ALGRITHM_NAME, testingLabel)
+        metricsFile = TrainingParams.METRICS_PER_PROT_FILE.format(testingLabel)
         dataset = pd.DataFrame(allMetricsData, columns=PPIPredPlotCls.MERICS_PER_PROT_COLUMNS)
-        print("\n## Generating metrics-data per protein for @@: " + metricsFile + " @@")
+        print("## Generating metrics-data per protein for @@: " + metricsFile + " @@")
         dataset.to_csv(metricsFile, index=False) 
         return
     
@@ -991,12 +1358,17 @@ class PPITrainTestCls(object):
     
     @classmethod
     def plotMetrics(cls, testingFile, flat_y_true, flat_y_pred, testingLabel):
+        '''
         if TrainingParams.SAVE_PRED_FILE:
             cls.savePredFile(testingFile, flat_y_true, flat_y_pred, testingLabel)
             figFile = cls.genPredPlotFromSavedFile(testingLabel)
         else:
             figFile = cls.genPredPlotFromMemory(testingFile, flat_y_true, flat_y_pred, testingLabel)
-        
+        '''
+        if TrainingParams.SAVE_PRED_FILE:
+            cls.savePredFile(testingFile, flat_y_true, flat_y_pred, testingLabel)        
+        figFile = cls.genPredPlotFromMemory(testingFile, flat_y_true, flat_y_pred, testingLabel)
+            
         if DatasetParams.COMET_EXPERIMENT is not None:
             DatasetParams.COMET_EXPERIMENT.log_asset(figFile)
         
@@ -1081,7 +1453,7 @@ class PPITrainTestCls(object):
     @classmethod
     def doTesting(cls, model, testingFile, testingLabel, testDataset=None):
         testingDateTime = datetime.datetime.now().strftime("%d-%m-%Y#%H:%M:%S")
-        logger.info("## Testing " + testingFile + " at: " + str(testingDateTime) + " ##")
+        logger.info("\n## Testing " + testingFile + " at: " + str(testingDateTime) + " ##")
         #testX.shape: (58,1024,28) & testY.shape: (58,1024,1)
         if testDataset is None:
             _, testX, _, testY = PPIDatasetCls.makeDataset(testingFile, TrainingParams.INPUT_SHAPE, 
@@ -1116,6 +1488,7 @@ class PPITrainTestCls(object):
     
     @classmethod
     def testModelForEnsembl(cls, testDatasetIndex):
+        print("%%%%%%% loading the saved ensemble model: ", TrainingParams.MODEL_SAVE_FILE)
         model = load_model(TrainingParams.MODEL_SAVE_FILE, compile=False, custom_objects=TrainingParams.CUSTOM_OBJECTS)
         
         if TrainingParams.USE_ENSEMBLE_TRAINING: #use validation dataset of the training dataset if we perform ensemble testing
@@ -1167,7 +1540,7 @@ class PPITrainTestCls(object):
     @classmethod
     def printModel(cls, model):
         model.summary(print_fn=logger.info)
-        plot_model(model, to_file=TrainingParams.MODEL_PLOT_FILE, show_shapes=True, show_layer_names=True)
+        #plot_model(model, to_file=TrainingParams.MODEL_PLOT_FILE, show_shapes=True, show_layer_names=True)
     
     @classmethod
     def logTrainExperiment(cls):
@@ -1184,7 +1557,7 @@ class PPITrainTestCls(object):
                 "USE_BIAS": TrainingParams.USE_BIAS,
                 "DROPOUT_RATE": TrainingParams.DROPOUT_RATE,
                 "USE_EARLY_STOPPING": TrainingParams.USE_EARLY_STOPPING,
-                "MODEL_CHECK_POINT_MODE": TrainingParams.MODEL_CHECK_POINT_MODE,
+                "MODEL_CHECK_POINT_MODE": LossParams.MODEL_CHECK_POINT_MODE,
                 "FEATURE_COLUMNS": DatasetParams.FEATURE_COLUMNS,
                 "FLOAT_TYPE": DatasetParams.FLOAT_TYPE,
                 "SKIP_SLICING": DatasetParams.SKIP_SLICING,
@@ -1304,8 +1677,7 @@ class PPITrainTestCls(object):
     
     @classmethod
     def trainKerasModel(cls, model, trainDataset):
-        #logger.info("## tf-version: " + tf.__version__ + "|| keras-version: " + tf.keras.__version__ + "|| float_type: " + K.floatx())
-        logger.info("## tf-version: " + tf.__version__ + "|| float_type: " + K.floatx())
+        logger.info("## tf-version: " + tf.__version__ + "|| float_type: " + backend.floatx())
         cls.printModel(model)
         
         if trainDataset is None:
@@ -1323,7 +1695,26 @@ class PPITrainTestCls(object):
         cls.doTraining(model, trainX, valX, trainY, valY)
         
         return
-      
+    
+    @classmethod
+    def trainLazyKerasModel(cls, model, trainDataset):
+        #this is for ensemble training where the inputs are predictions of individual architecture.
+        #we don't train the ensemble model using lazy training, because the training data is not large.
+        if trainDataset is not None:
+            return cls.trainKerasModel(model, trainDataset)
+        
+        logger.info("## tf-version: " + tf.__version__ + "|| float_type: " + backend.floatx())
+        cls.printModel(model)
+        model = cls.compileModel(model)
+        #reader = PPIDatasetCls.makeLazyReader(DatasetParams.EXPR_TRAINING_FILE)
+        #cls.doLazyTraining(model, reader)
+        #csvDdf, numProts = PPIDatasetCls.makeLazyDaskReader(DatasetParams.EXPR_TRAINING_FILE)
+        csvDaskIter, numProts = PPIDatasetCls.makeLazyDaskReader(DatasetParams.EXPR_TRAINING_FILE)
+        logger.info("## Number of proteins in the training dataset: " + str(numProts))  
+        #cls.doLazyDaskTraining(model, csvDdf, numProts)
+        cls.doLazyDaskTraining(model, csvDaskIter, numProts)
+        return  
+    
     @classmethod
     def trainModel(cls, model, trainDataset=None):
         trainingDateTime = datetime.datetime.now().strftime("%d-%m-%Y#%H:%M:%S")
@@ -1335,6 +1726,8 @@ class PPITrainTestCls(object):
             cls.trainEnsRFModel(trainDataset)
         elif TrainingParams.ENS_XGBOOST_MODEL:
             cls.trainEnsXGBModel(trainDataset)
+        elif TrainingParams.USE_LAZY_TRAINING:
+            cls.trainLazyKerasModel(model, trainDataset)
         else:
             cls.trainKerasModel(model, trainDataset)
 

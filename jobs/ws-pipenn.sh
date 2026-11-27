@@ -1,11 +1,17 @@
 #!/bin/bash
 
+if [ -z "$1" ]; then
+    echo "Missing parameter. You should provide p, n, or s"
+    return 1
+fi
 PRED_TYPE=$1
 
-USER_HOME=/scistor/informatica/rhu300
-PIPENN_HOME=$USER_HOME/pipennemb
-JOB_DIR=$PIPENN_HOME/jobs
-CONDA_HOME=$USER_HOME/miniconda3
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
+export USER_HOME=/scistor/informatica/rhu300
+export PIPENN_HOME=$USER_HOME/pipenn3
+export VENV_HOME=/scistor/informatica/rhu300/venv-ws/pipenn3
+export JOB_DIR=$PIPENN_HOME/jobs
 
 # your input file and output folder
 USERDS_INPUT_DIR=.
@@ -13,18 +19,16 @@ USERDS_INPUT_FILE=$USERDS_INPUT_DIR/input.fa
 USERDS_OUTPUT_FILE=$USERDS_INPUT_DIR/prepared_userds.csv
 
 USERDS_OUTPUT_DIR=.
-PIPENN_ENV=pipenn-2.0
+PIPENN_ENV=pipenn-3.0
 
 prepare_run() {
-  source $CONDA_HOME/etc/profile.d/conda.sh
-  conda deactivate
-  conda deactivate
+  deactivate
+  source $VENV_HOME/bin/activate
 }
 
 set_pipenn_env() {
   export PYTHONPATH=$PIPENN_HOME/utils:$PIPENN_HOME/config:$PIPENN_HOME/ann-ppi:$PIPENN_HOME/rnn-ppi:$PIPENN_HOME/dnet-ppi:$PIPENN_HOME/rnet-ppi:$PIPENN_HOME/unet-ppi:$PIPENN_HOME/cnn-rnn-ppi:$PIPENN_HOME/ensnet-ppi
-  conda activate $PIPENN_ENV
-  echo "PIPENN_HOME is: $PIPENN_HOME and PIPENN_ENV is: $PIPENN_ENV"
+  #echo "PIPENN_HOME is: $PIPENN_HOME and PIPENN_ENV is: $PIPENN_ENV"
 }
 
 gen_pipenn_features() {
@@ -38,7 +42,8 @@ gen_pipenn_preds() {
 	#ALG_JOB=$JOB_DIR/ensnet-ppi/ensnet-lisa-job.sh
 	#$(mkdir logs)
         echo "Prediction type is: $PRED_TYPE"
-	source $ALG_JOB $PRED_TYPE 2> reza_log.txt
+	#source $ALG_JOB $PRED_TYPE 2> reza_log.txt
+	source $ALG_JOB $PRED_TYPE
 	$(mv $ALG_DIR results)
 }
 

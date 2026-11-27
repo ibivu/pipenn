@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PIPENN_HOME=/scistor/informatica/rhu300/pipennemb/
+PIPENN_HOME=/scistor/informatica/rhu300/pipenn3/
 
 ALG_DIR=$1
 ALG_FILE=$2

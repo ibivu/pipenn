@@ -63,7 +63,8 @@ class PPIPredMericsCls(object):
             confusion  = confusion_matrix(y_trues, cutoffPreds)
             tn, fp, fn, tp = confusion.ravel()
             specScore = tn / (tn+fp)
-            presScore, recallScore, f1Score, _  = precision_recall_fscore_support(y_trues, cutoffPreds, average ='binary')
+            presScore, recallScore, f1Score, _  = precision_recall_fscore_support(y_trues, cutoffPreds, average ='binary', zero_division=1.0)
+            #presScore, recallScore, f1Score, _  = precision_recall_fscore_support(y_trues, cutoffPreds, average ='binary')
             mccScore  = matthews_corrcoef(y_trues, cutoffPreds)
             scoreDataDict = {
                 'cutoff_method': cutoffMethod,

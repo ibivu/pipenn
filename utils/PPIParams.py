@@ -2,8 +2,8 @@ import sys
 import os
 
 import numpy as np
-from tensorflow.keras.layers import ReLU, LeakyReLU, PReLU, ELU
-from tensorflow.keras.initializers import GlorotUniform, GlorotNormal, he_uniform, he_normal, lecun_uniform, lecun_normal, \
+from keras.layers import ReLU, LeakyReLU, PReLU, ELU
+from keras.initializers import GlorotUniform, GlorotNormal, he_uniform, he_normal, lecun_uniform, lecun_normal, \
                                                  Orthogonal, TruncatedNormal, VarianceScaling
 
 from PPILogger import PPILoggerCls
@@ -20,7 +20,7 @@ class PPIParamsCls(object):
                     'PA_q', 
                     'PB_q', 
                     'PC_q', 
-                    #'length',
+                    'length',
                     #'AliSeq',
                     'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V', 
                    ]
@@ -79,7 +79,7 @@ class PPIParamsCls(object):
             DatasetParams.PIPENN_HOME = pipennHome
             DatasetParams.ROOT_DIR = './data/'
             DatasetParams.setPreparedFiles()
-
+        
         print("%%%%%%%%% PIPENN_HOME: ", DatasetParams.PIPENN_HOME)    
         return pipennDatasetLabel
     
@@ -93,20 +93,22 @@ class PPIParamsCls(object):
         DatasetParams.setExprDatasetFiles(dsLabelParam)
         
         TrainingParams.setOutputFileNames(algorithmName)
-        TrainingParams.OPT_FUN = TrainingParams.ADAM_OPT
+        #TrainingParams.OPT_FUN = TrainingParams.ADAM_OPT
+        TrainingParams.OPT_FUN = TrainingParams.ADAMW_OPT
         TrainingParams.KERNAL_INITIALIZER = he_uniform
         TrainingParams.ACTIVATION_FUN = PReLU
         TrainingParams.USE_BIAS = False
         TrainingParams.BATCH_SIZE = 8 #8 > 16 > 32 > 64
         TrainingParams.USE_EARLY_STOPPING = True        #should be true for large datasets but false for small ones.
         TrainingParams.NUM_EPOCS = 300 #200 #150
-        TrainingParams.MODEL_CHECK_POINT_MODE = 1
+        LossParams.MODEL_CHECK_POINT_MODE = LossParams.AUC_CHECK
         
         DatasetParams.USE_DOWN_SAMPLING = False
         DatasetParams.FEATURE_PAD_CONST = 0.11111111
         #DatasetParams.SKIP_SLICING = True
         #DatasetParams.USE_VAR_BATCH_INPUT = True
         
+        LossParams.CUTOFF_METHOD = LossParams.EQUAL_CUTOFF
         LossParams.USE_WEIGHTED_LOSS = True
         LossParams.USE_DELETE_PAD = True #True(72.32%) #False(see below)
         LossParams.PRED_PAD_CONST = 0.0 #0.001(72.07%) #0.0(72.15%) #1.0(72.06%)
