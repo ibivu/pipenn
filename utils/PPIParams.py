@@ -63,7 +63,7 @@ class PPIParamsCls(object):
             # pipenn has been started with $PIPENN_HOME and $PRED_TYPE (P,N,S,A), the webservice version.
             pipennHome = sys.argv[1]
             predType = sys.argv[2]
-            choices = {'p': 'UserDS_P', 'n': 'UserDS_N', 's':'UserDS_S', 'a':'UserDS_A'}
+            choices = {'p': 'UserDS_P', 'n': 'UserDS_N', 's':'UserDS_S', 'e':'UserDS_E'}
             pipennDatasetLabel = choices.get(predType)
             DatasetParams.USE_USERDS_EVAL = True
             DatasetParams.USERDS_INPUT_DIR = './'
